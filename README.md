@@ -1,6 +1,6 @@
 - 👋 Hi, I’m @Yhizal
 - 👀 I’m interested in learning Electric and electronick tech.
-- 🌱 I’m currently learning Hv electric and tring to make adopted its to sofrware via electronics
+- 🌱 I’m currently learning Hv electric and tring to make adopted its to software via electronics
 - 💞️ I’m looking to new tech.
 - 📫
 
