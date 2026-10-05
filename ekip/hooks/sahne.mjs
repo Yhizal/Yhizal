@@ -38,10 +38,10 @@ function sprite(t, x0, y0, satirlar, palet) {
 
 // ── Temalar: arka plan (paralaks), sprite kareleri (sağa bakar), parçacıklar ──
 const P = {
-  clawd: { O: hex("#D97757"), S: hex("#B5583D"), E: hex("#1B1B1B"), C: hex("#E8916F") },
-  araba: { R: hex("#E53935"), D: hex("#A82623"), G: hex("#9BD4F5"), K: hex("#151515"), k: hex("#8A8A8A"), W: hex("#FFFFFF") },
+  clawd: { O: hex("#D97757"), S: hex("#B5583D"), E: hex("#1B1B1B") },
+  araba: { R: hex("#FF3B3B"), G: hex("#9BD4F5"), K: hex("#151515"), k: hex("#8A8A8A"), W: hex("#FFF3B0") },
   tekne: { W: hex("#FFFFFF"), w: hex("#DCE6EE"), M: hex("#6B4423"), B: hex("#8B5A2B"), b: hex("#6E4520"), F: hex("#E53935") },
-  ucak: { S: hex("#E3E8EE"), s: hex("#AEB8C4"), B: hex("#1E5AA8"), R: hex("#E53935"), P: hex("#4A4A4A"), p: hex("#C8C8C8") },
+  ucak: { S: hex("#F2F5F8"), s: hex("#AEB8C4"), B: hex("#1E5AA8"), R: hex("#D32F2F"), p: hex("#C8C8C8") },
   roket: { W: hex("#F4F4F4"), w: hex("#BFC5CC"), R: hex("#E53935"), B: hex("#4FC3F7") },
 };
 
@@ -49,8 +49,8 @@ export const SAHNELER = {
   Clawd: {
     w: 9,
     kare: [
-      [".OOOOOOO.", "COOOOOOOC", ".OEOOOEO.", ".SOOOOOS.", ".S.S.S.S."],
-      [".OOOOOOO.", "COOOOOOOC", ".OEOOOEO.", ".SOOOOOS.", "S.S.S.S.."],
+      [".OOOOOOO.", "OOEOOOEOO", "OOEOOOEOO", "OOOOOOOOO", ".S.S.S.S."],
+      [".OOOOOOO.", "OOEOOOEOO", "OOEOOOEOO", "OOOOOOOOO", "S.S.S.S.."],
     ],
     y: 1, palet: P.clawd,
     zemin(t, f) {
@@ -63,28 +63,28 @@ export const SAHNELER = {
       }
       t.nokta(t.w - 6, 0, hex("#FFE27A")); t.nokta(t.w - 5, 0, hex("#FFE27A")); // güneş
     },
-    iz(t, x, f) { for (let i = 1; i < x; i += 2) t.nokta(x - i, H - 1, karistir(hex("#C9A365"), t.al(x - i, H - 1), Math.min(1, i / 14))); },
+    iz(t, x, f) { for (let i = 1; i < Math.min(x, 14); i += 2) t.nokta(x - i, H - 1, karistir(hex("#C9A365"), t.al(x - i, H - 1), i / 14)); },
   },
   yarış: {
     w: 11,
     kare: [
-      ["...RRRRR...", ".RRRGGGRRW.", "RRDRRRRRRRR", ".KK.....KK."],
-      ["...RRRRR...", ".RRRGGGRRW.", "RRDRRRRRRRR", ".Kk.....Kk."],
+      ["...RGGGR...", "RRRRRRRRRRW", ".KK....KK.."],
+      ["...RGGGR...", "RRRRRRRRRRW", ".Kk....Kk.."],
     ],
-    y: 1, palet: P.araba,
+    y: 3, palet: P.araba,
     zemin(t, f) {
       const cim = hex("#2E7D32"), cimA = hex("#3E9142"), asfalt = hex("#3A3D42"), serit = hex("#F2F2F2");
       for (let x = 0; x < t.w; x++) {
         t.nokta(x, 0, gurultu(x + f, 0) > 0.7 ? cimA : cim);
-        t.nokta(x, 1, (Math.floor((x + f) / 2) % 2) ? hex("#E53935") : hex("#FFFFFF")); // bordür
+        t.nokta(x, 1, (Math.floor((x + f) / 2) % 2) ? hex("#B71C1C") : hex("#EEEEEE")); // bordür, arabadan koyu
         for (let y = 2; y < H; y++) t.nokta(x, y, asfalt);
-        t.nokta(x, 4, (x + f) % 6 < 3 ? serit : asfalt);
+        t.nokta(x, 2, (x + f) % 6 < 3 ? serit : asfalt);
       }
     },
     iz(t, x, f) { // egzoz dumanı
       for (let i = 1; i <= 6; i++) {
-        const yy = 3 - ((f + i) % 3 === 0 ? 1 : 0);
-        t.nokta(x - i, yy, karistir(hex("#C9CDD2"), t.al(x - i, yy), Math.min(1, i / 6)));
+        const yy = 4 - ((f + i) % 3 === 0 ? 1 : 0); // tekerlek hizasında
+        t.nokta(x - i, yy, karistir(hex("#C9CDD2"), t.al(x - i, yy), i / 6));
       }
     },
   },
@@ -102,27 +102,29 @@ export const SAHNELER = {
         t.nokta(x, 4, Math.sin((x + f) / 2.2) > 0.6 ? kopuk : denizA);
         t.nokta(x, 5, deniz);
       }
-      t.nokta(t.w - 9, 1, hex("#FFF2B0")); t.nokta(t.w - 8, 1, hex("#FFF2B0"));
-      const kus = (t.w * 2 - ((f >> 1) % (t.w * 2))) % t.w; t.nokta(kus, 1, hex("#3A3A3A"));
+      for (const dx of [0, 1]) { t.nokta(t.w - 9 + dx, 0, hex("#FFF2B0")); t.nokta(t.w - 9 + dx, 1, hex("#FFD36B")); }
+      const kus = t.w + 2 - ((f >> 1) % (t.w + 4)), kanat = (f >> 1) % 2 ? 1 : 0; // "v", kanat çırpar
+      t.nokta(kus, 1, hex("#3A3A3A")); t.nokta(kus + 1, kanat, hex("#3A3A3A")); t.nokta(kus + 2, 1, hex("#3A3A3A"));
     },
     iz(t, x, f) { for (let i = 1; i <= 7; i++) t.nokta(x - i, 4, karistir(hex("#FFFFFF"), t.al(x - i, 4), Math.min(1, i / 7 + ((f + i) % 2) * 0.15))); },
   },
   uçuş: {
-    w: 11,
+    w: 12,
     kare: [
-      ["R..........", "RR........p", "SSSBBSSSSSP", "...sss....p"],
-      ["R..........", "RR.........", "SSSBBSSSSSP", "...sss....."],
+      ["RR..........", "RRSSSSSSSSs.", ".SSSBBSSSSSS", "....RRR....."],
+      ["RR..........", "RRSSSSSSSSsp", ".SSSBBSSSSSS", "....RRR....p"],
     ],
     y: 1, palet: P.ucak,
     zemin(t, f) {
       const gokU = hex("#3F8FD6"), gokA = hex("#A8D8F5"), bulut = hex("#FFFFFF"), bulutU = hex("#E4EEF6");
       for (let x = 0; x < t.w; x++) for (let y = 0; y < H; y++) t.nokta(x, y, karistir(gokU, gokA, y / (H - 1)));
+      const tur = t.w + 4; // bulut kenardan çıkar, karşıdan girer; ikiye bölünmez
       for (const [bx, by, hiz] of [[5, 1, 1], [24, 0, 1], [16, 4, 2], [33, 3, 2]]) {
-        const x = ((bx - Math.floor(f * hiz / 2)) % t.w + t.w) % t.w;
-        for (const [dx, dy] of [[0, 0], [1, 0], [2, 0], [1, -1]]) t.nokta((x + dx) % t.w, by + dy, hiz === 2 ? bulut : bulutU);
+        const x = ((bx - Math.floor(f * hiz / 2)) % tur + tur) % tur - 3;
+        for (const [dx, dy] of [[0, 0], [1, 0], [2, 0], [1, -1]]) t.nokta(x + dx, by + dy, hiz === 2 ? bulut : bulutU);
       }
     },
-    iz(t, x, f) { for (let i = 1; i < Math.min(x, 16); i++) t.nokta(x - i, 3, karistir(hex("#FFFFFF"), t.al(x - i, 3), Math.min(1, i / 16))); },
+    iz(t, x, f) { for (let i = 1; i < Math.min(x, 10); i++) t.nokta(x - i, 3, karistir(hex("#D9E6F2"), t.al(x - i, 3), i / 10)); },
   },
   roket: {
     w: 10,
@@ -136,7 +138,8 @@ export const SAHNELER = {
       for (let x = 0; x < t.w; x++) for (let y = 0; y < H; y++) {
         t.nokta(x, y, karistir(uzay, uzayA, y / (H - 1)));
         const g = gurultu((x + (f >> 1)) % 97, y);
-        if (g > 0.93) t.nokta(x, y, karistir(hex("#FFFFFF"), uzay, ((f + x) % 5) / 6)); // parıldayan yıldız
+        if (g > 0.97) t.nokta(x, y, karistir(hex("#FFFFFF"), uzay, ((f + x) % 5) / 6)); // parıldayan yıldız
+        else if (g > 0.93) t.nokta(x, y, hex("#5C648C"));                               // sönük, sabit yıldız
       }
     },
     iz(t, x, f) { // alev: sarı → turuncu → kırmızı, titreşir
@@ -175,9 +178,9 @@ export function sahneKaresi(ad, f, ilerleme, bitti, w = SAHNE_W) {
   s.zemin(t, akis);
   const x = Math.round(Math.max(0, Math.min(1, ilerleme)) * (w - 2 - s.w));
   if (!bitti) s.iz(t, x, f);
+  if (bitti) konfeti(t, w - 2 - s.w, f); // sprite'ın altında kalsın
   sprite(t, x, s.y, s.kare[bitti ? 0 : (f >> 1) % 2], s.palet);
   bayrak(t, f, bitti);
-  if (bitti) konfeti(t, w - 2 - s.w, f);
   return t;
 }
 

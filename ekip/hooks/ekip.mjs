@@ -77,6 +77,7 @@ let anim = null;
 const ANIM_MS = 83; // ~12 kare/sn
 const KONFETI_MS = 2500;
 let ticker = null;
+let seyrek = 0;
 
 export function sure(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -277,7 +278,15 @@ function animasyon($) {
     const simdi = Date.now();
     for (const [key, v] of canli) if (v.bitti && simdi - v.bitis > KONFETI_MS) canli.delete(key);
     if (!canli.size && !k.some(x => x.durum === "calisiyor")) { anim?.cancel?.(); anim = null; return; }
+    const { value: ab = {} } = await $.state.get(ADIM_BELLEK);
     for (const [key, v] of canli) {
+      const kosu = durumu(k, v.uye);
+      if (kosu) {
+        const bitti = kosu.durum !== "calisiyor";
+        if (bitti && !v.bitti) v.bitis = simdi;
+        v.bitti = bitti;
+        v.ilerleme = ilerleme(kosu, istatistik(ab[kosu.tip], "s"));
+      }
       const r = await $.ui.blit({ requestId: PANE, key, cells: hucreler(sahneKaresi(v.ad, kareNo, v.ilerleme, v.bitti)), columns: SAHNE_W, rows: SAHNE_R });
       if (r?.deny) canli.delete(key); // panel kapalı ya da yeniden çizildi: render yeniden ekler
     }
@@ -294,6 +303,8 @@ function cark($) {
     const hareket = k.some(x => x.durum === "calisiyor") || taslak?.durum === "hazirlaniyor" ||
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor";
     if (!hareket) { ticker?.cancel?.(); ticker = null; return; }
+    // Raster şeritleri blit ile canlı; tam yeniden çizimi yalnız yazı spinner'ları için seyrek yap (~1.6 Hz).
+    if (canli.size && ++seyrek % 4) return;
     const { value: f = 0 } = await $.state.get(FRAME);
     await $.state.set(FRAME, f + 1);
   });
@@ -539,7 +550,7 @@ export function register(on) {
         const bitti = k.durum !== "calisiyor";
         const il = ilerleme(k, stat);
         const once = canli.get(key);
-        canli.set(key, { ad: tema.ad, ilerleme: il, bitti, bitis: once?.bitti ? once.bitis : bitti ? Date.now() : 0 });
+        canli.set(key, { uye: u, ad: tema.ad, ilerleme: il, bitti, bitis: once?.bitti ? once.bitis : bitti ? Date.now() : 0 });
         return Box({ key: `u-${u}`, flexDirection: "row", children: [
           Box({ key: `ua-${u}`, flexDirection: "column", children: [ad, Text({ dimColor: true, children: alt2 }), Text({ children: " " })] }),
           Raster({ key, columns: SAHNE_W, rows: SAHNE_R, cells: hucreler(sahneKaresi(tema.ad, kareNo, il, bitti)) }),
