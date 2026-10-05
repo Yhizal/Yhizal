@@ -1,1 +1,1 @@
-{"name":"yusuf-mods","description":"Yusuf icin Claude Code modlari","owner":{"name":"Yusuf"},"plugins":[{"name":"diff-disiplin","source":"./diff-disiplin"}]}
+{"name": "yusuf-mods", "description": "Yusuf icin Claude Code modlari", "owner": {"name": "Yusuf"}, "plugins": [{"name": "diff-disiplin", "source": "./diff-disiplin"}, {"name": "kota-cubugu", "source": "./kota-cubugu"}]}
