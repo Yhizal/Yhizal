@@ -2,6 +2,7 @@ const VISIBLE = { plugin: "kota-cubugu", key: "visible" };
 const LIMITS = { plugin: "kota-cubugu", key: "limits" };
 const FRAME = { plugin: "kota-cubugu", key: "frame" };
 const WARNED = { plugin: "kota-cubugu", key: "warned" };
+const CACHE = { plugin: "kota-cubugu", key: "cache" };
 
 const WIN = {
   five_hour: { ms: 5 * 3600_000, icon: "⏳", label: "5 saat " },
@@ -21,6 +22,39 @@ export function dur(ms) {
   if (m >= 1440) return `${Math.floor(m / 1440)}g ${Math.floor((m % 1440) / 60)}sa`;
   if (m >= 60) return `${Math.floor(m / 60)}sa ${m % 60}dk`;
   return `${m}dk`;
+}
+
+// ── Önbellek geri sayımı ──
+// Her ana konuşma isteği önbelleği tazeler; süre dolunca sonraki mesaj bütün bağlamı baştan yazar.
+// TTL: abonelikte ana konuşma 1 saat, API anahtarında 5 dakika (kota penceresi yoksa abonelik yok sayılır).
+export const TTL = { abonelik: 3_600_000, api: 300_000 };
+const CACHE_BAR = 12;
+export function cacheGuncelle(c, u, now, ttlMs) {
+  const yazilan = u.cache_creation_input_tokens ?? 0, okunan = u.cache_read_input_tokens ?? 0, girdi = u.input_tokens ?? 0;
+  const ctx = girdi + okunan + yazilan + (u.output_tokens ?? 0);
+  const once = c ?? { okunan: 0, toplam: 0, iska: 0 };
+  // Iskalama: önceki bağlamın yarısından azı önbellekten geldiyse önbellek kaybedilmiş demektir.
+  const iska = once.ctx > 2000 && okunan < once.ctx * 0.5;
+  const neden = !iska ? once.neden : once.model && u.model && u.model !== once.model ? "model değişti" : once.son != null && now - once.son > once.ttlMs ? "süre doldu" : "önbellek düştü";
+  return {
+    son: now, ttlMs, ctx, model: u.model ?? once.model,
+    okunan: once.okunan + okunan, toplam: once.toplam + okunan + yazilan + girdi,
+    iska: once.iska + (iska ? 1 : 0), ...(neden ? { neden } : {}),
+  };
+}
+export function bin(n) {
+  return n >= 1000 ? `${Math.round(n / 1000)}k` : String(n);
+}
+export function cacheDurum(c, now) {
+  if (c?.son == null) return null;
+  const kalan = c.son + c.ttlMs - now;
+  const isabet = c.toplam ? Math.round((c.okunan / c.toplam) * 100) : 0;
+  if (kalan <= 0) return { sicak: false, ctx: c.ctx, neden: c.neden, isabet, iska: c.iska };
+  return { sicak: true, kalan, oran: kalan / c.ttlMs, ttl: c.ttlMs >= TTL.abonelik ? "1sa" : "5dk", isabet, iska: c.iska, uyari: kalan / c.ttlMs < 0.2 };
+}
+function sureKisa(ms) {
+  const sn = Math.ceil(ms / 1000);
+  return sn >= 60 ? `${Math.ceil(sn / 60)}dk` : `${sn}sn`;
 }
 
 export function heat(p) {
@@ -97,7 +131,10 @@ export function register(on) {
       ticks++;
       const { value: limits = [] } = await $.state.get(LIMITS);
       const hot = limits.some(l => l.percentUsed >= HOT);
-      if (!busy && !hot && ticks % IDLE_EVERY) return;
+      const { value: c = null } = await $.state.get(CACHE);
+      const kalan = c?.son != null ? c.son + c.ttlMs - Date.now() : -1;
+      const yakin = kalan > -1000 && kalan < 120_000 ? ticks % 5 === 0 : false; // son 2 dk: saniyelik
+      if (!busy && !hot && !yakin && ticks % IDLE_EVERY) return;
       const { value: f = 0 } = await $.state.get(FRAME);
       await $.state.set(FRAME, f + 1);
     });
@@ -117,6 +154,16 @@ export function register(on) {
     const { value: v = true } = await $.state.get(VISIBLE);
     await $.state.set(VISIBLE, !v);
     return { text: `Kota çubuğu ${!v ? "AÇIK" : "KAPALI"}` };
+  });
+
+  on("turn.step", async function* ($, e, next) {
+    const r = yield* next(e);
+    if (!e.agentId && r?.usage) {
+      const { value: c = null } = await $.state.get(CACHE);
+      const { value: limits = [] } = await $.state.get(LIMITS);
+      await $.state.set(CACHE, cacheGuncelle(c, r.usage, Date.now(), limits.length ? TTL.abonelik : TTL.api));
+    }
+    return r;
   });
 
   on("turn.start", async ($, e, next) => {
@@ -155,6 +202,19 @@ export function register(on) {
           });
         })
       : [Box({ key: "bekle", paddingX: 1, children: [Text({ dimColor: true, children: "⏳ kota: ilk yanıttan sonra görünür (yalnızca Pro/Max abonelikte)" })] })];
+    const { value: c = null } = await $.state.get(CACHE);
+    const cd = cacheDurum(c, now);
+    if (cd) {
+      const renk = !cd.sicak ? "red" : cd.uyari ? "yellow" : "green";
+      const dolu = cd.sicak ? Math.max(1, Math.round(cd.oran * CACHE_BAR)) : 0;
+      const ozet = `  ·  isabet %${cd.isabet}  ·  ıskalama ${cd.iska}${cd.iska && c.neden ? ` (${c.neden})` : ""}`;
+      rows.push(Box({ key: "cache", flexDirection: "row", paddingX: 1, children: cd.sicak
+        ? [Text({ color: renk, children: "◉ önbellek " }), Text({ color: renk, bold: true, children: `${cd.ttl} ` }),
+           Text({ color: renk, children: "█".repeat(dolu) }), Text({ dimColor: true, children: "░".repeat(CACHE_BAR - dolu) }),
+           Text({ color: renk, bold: true, children: ` ${sureKisa(cd.kalan)} kaldı` }), ...(wide ? [Text({ dimColor: true, children: ozet })] : [])]
+        : [Text({ color: "red", children: "○ önbellek soğuk" }), Text({ color: "red", dimColor: true, children: `  ·  sonraki mesaj ${bin(cd.ctx)} token'ı yeniden önbelleğe alır` }),
+           ...(wide && cd.iska ? [Text({ dimColor: true, children: ozet })] : [])] }));
+    }
     const band = Box({ flexDirection: "column", children: rows });
     return below ? Box({ flexDirection: "column", children: [below, band] }) : band;
   });

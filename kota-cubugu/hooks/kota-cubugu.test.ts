@@ -46,3 +46,38 @@ test('%80 geçilince bir kez uyarı verir', async ($, on) => {
   expect(toasts.length).toBe(1)
   expect(toasts[0]).toMatch(/%82/)
 })
+
+import { cacheGuncelle, cacheDurum, bin, TTL } from './kota-cubugu.mjs'
+
+const U = (okunan: number, yazilan: number, girdi = 50, model = 'claude-opus-5-5') =>
+  ({ cache_read_input_tokens: okunan, cache_creation_input_tokens: yazilan, input_tokens: girdi, output_tokens: 500, model })
+
+test('önbellek: ilk istek yazar, sonrakiler okur; isabet oranı birikimli', () => {
+  let c: any = cacheGuncelle(null, U(0, 40_000), 0, TTL.abonelik)
+  expect(c.ctx).toBe(40_550)
+  expect(c.iska).toBe(0)
+  c = cacheGuncelle(c, U(40_000, 2_000), 60_000, TTL.abonelik)
+  expect(c.iska).toBe(0)
+  expect(Math.round((c.okunan / c.toplam) * 100)).toBe(49) // 40k / (40k+2k+40k+100)
+})
+
+test('önbellek: süre dolunca ıskalama ve nedeni; model değişince ayrı neden', () => {
+  let c: any = cacheGuncelle(null, U(0, 80_000), 0, TTL.api)
+  c = cacheGuncelle(c, U(0, 82_000), 400_000, TTL.api)          // 6.6 dk sonra: 5 dk TTL geçti
+  expect(c.iska).toBe(1)
+  expect(c.neden).toBe('süre doldu')
+  c = cacheGuncelle(c, U(0, 83_000, 50, 'claude-fable-5-1'), 410_000, TTL.api)
+  expect(c.iska).toBe(2)
+  expect(c.neden).toBe('model değişti')
+})
+
+test('önbellek durumu: sıcak → %20 altında uyarı → soğuk; soğukta yeniden yazılacak token', () => {
+  const c: any = cacheGuncelle(null, U(0, 81_600), 0, TTL.abonelik)
+  const s1: any = cacheDurum(c, 10 * 60_000)
+  expect(s1.sicak).toBe(true); expect(s1.ttl).toBe('1sa'); expect(s1.uyari).toBe(false)
+  expect(cacheDurum(c, 50 * 60_000)!.uyari).toBe(true)
+  const s3: any = cacheDurum(c, 61 * 60_000)
+  expect(s3.sicak).toBe(false)
+  expect(bin(s3.ctx)).toBe('82k')
+  expect(cacheDurum(null, 0)).toBeNull()                              // ilk yanıttan önce hiçbir şey gösterme
+})
