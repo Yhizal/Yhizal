@@ -124,25 +124,25 @@ export function piksel(satirlar) {
 // gok/zemin: araç önündeki manzara (sola akar); iz: aracın arkasında kalan.
 export const TEMALAR = [
   { ad: "Clawd", renk: "#D97757", kare: [
-      [".#######.", "##.###.##", ".#######.", ".#.#.#.#."],
-      [".#######.", "##.###.##", ".#######.", "#.#.#.#.#"]],
-    gok: ["°", " ", " ", " ", " ", "∘", " ", " "], zemin: ["_", " ", ".", " "], izUst: " ", izAlt: "∴", izRenk: "#D97757" },
+      [".#######.", "#########", "##.###.##", "##...##.."],
+      [".#######.", "#########", "##.###.##", ".##...##."]],
+    gok: [".", " ", " ", " ", " ", " ", " "], zemin: ["_", " ", ".", " "], izUst: " ", izAlt: ":", izRenk: "#D97757" },
   { ad: "yarış", renk: "red", kare: [
-      ["#.####....", ".#########", "##########", ".##....##."],
-      ["#.####....", ".#########", "##########", ".#.#..#.#."]],
+      ["..####....", ".#########", "##########", ".##....##."],
+      ["..####....", ".#########", "##########", ".#.#..#.#."]],
     gok: [" ", " ", " ", " "], zemin: ["─", "─", " ", " "], izUst: " ", izAlt: "═", izRenk: "red" },
   { ad: "yelken", renk: "white", kare: [
-      ["....#.....", "....##....", "#########.", ".#######.."],
-      ["....#.....", "....###...", "#########.", ".#######.."]],
-    gok: [" ", "ᵥ", " ", " ", " ", " "], zemin: ["~", "≈", "~", " "], izUst: " ", izAlt: "≈", izRenk: "cyan" },
+      ["...##.....", "...####...", "#########.", ".#######.."],
+      ["...##.....", "...###....", "#########.", ".#######.."]],
+    gok: [" ", "v", " ", " ", " ", " "], zemin: ["~", "-", "~", " "], izUst: " ", izAlt: "~", izRenk: "cyan" },
   { ad: "uçuş", renk: "blue", kare: [
-      ["#........#", "#########.", "..###....#", ".........."],
-      ["#.........", "##########", "..###.....", ".........."]],
-    gok: ["∘", " ", " ", " ", " "], zemin: [" ", " ", "·", " ", " ", " "], izUst: "╌", izAlt: " ", izRenk: "blue" },
-  { ad: "maraton", renk: "yellow", kare: [
-      ["...##", "..###", "..#..", ".#..#"],
-      ["...##", "..##.", "..#..", "..##."]],
-    gok: [" ", " ", " ", " "], zemin: ["·", " ", " "], izUst: " ", izAlt: ",", izRenk: "yellow" },
+      [".#........", ".##.......", "##########", "....###..."],
+      [".#........", ".##.......", "##########", ".....###.."]],
+    gok: [" ", " ", ".", " ", " "], zemin: [" ", " ", " ", " "], izUst: " ", izAlt: "╌", izRenk: "blue" },
+  { ad: "roket", renk: "yellow", kare: [
+      ["##.......", ".#######.", ".########", "##......."],
+      ["##.......", ".######..", ".########", "##......."]],
+    gok: [".", " ", " ", " ", " "], zemin: [" ", " ", ".", " "], izUst: "-", izAlt: "=", izRenk: "red" },
 ];
 const BAYRAK = [["▀▄", "▀▄"], ["▄▀", "▄▀"]];
 export const SERIT_W = 26; // pist genişliği (bayrak hariç)
@@ -158,18 +158,18 @@ export function serit(kosu, tema, frame, stat, W = SERIT_W) {
   const [ust, alt] = piksel(tema.kare[bitti ? 0 : adim]);
   const aw = ust.length;
   const pos = Math.round(ilerleme(kosu, stat) * (W - aw));
-  const akis = frame >> 1;
+  const akis = bitti ? 0 : frame >> 1; // araç durunca yol da durur
   const manzara = (desen, bas, n) => Array.from({ length: n }, (_, i) => desen[(bas + i + akis) % desen.length]).join("");
   const iz = (ch, n) => (n > 0 ? ch.repeat(n) : "");
   const kalan = W - pos - aw;
-  const renk = bitti ? "green" : tema.renk;
+  const renk = tema.renk; // bitişte de kimliğini korur; yeşil yalnız bayrakta
   const bayrak = BAYRAK[bitti ? 0 : adim];
   const parca = (izCh, sprite, desen, b) => [
     ...(pos > 3 ? [{ color: tema.izRenk, dimColor: true, children: iz(izCh, pos - 3) }] : []),
     ...(pos > 0 ? [{ color: tema.izRenk, children: iz(izCh, Math.min(3, pos)) }] : []),
     { color: renk, bold: true, children: sprite },
     ...(kalan > 0 ? [{ dimColor: true, children: manzara(desen, pos + aw, kalan) }] : []),
-    { color: "white", dimColor: bitti, children: b },
+    { color: bitti ? "green" : "white", bold: bitti, children: b },
   ].filter(x => x.children !== "");
   return { ust: parca(tema.izUst, ust, tema.gok, bayrak[0]), alt: parca(tema.izAlt, alt, tema.zemin, bayrak[1]) };
 }

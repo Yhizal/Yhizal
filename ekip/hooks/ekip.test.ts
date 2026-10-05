@@ -129,7 +129,12 @@ test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik s
   expect(piksel(['#.', '##', '.#', '..'])).toEqual(['█▄', ' ▀'])
   const son = serit({ durum: 'bitti' } as never, TEMALAR[0], 0)
   expect(metin(son.ust).endsWith(piksel(TEMALAR[0].kare[0])[0] + '▀▄')).toBe(true) // bitince araç bayrakta
-  expect(son.ust.find((x: any) => x.children.includes('█'))?.color).toBe('green')
+  expect(son.ust.find((x: any) => x.children.includes('█'))?.color).toBe(TEMALAR[0].renk)   // bitişte kimlik korunur
+  expect(son.ust.at(-1)?.color).toBe('green')                                                 // yeşil yalnız bayrakta
+  const sabit = (f: number) => metin(serit({ durum: 'bitti' } as never, TEMALAR[1], f).alt)
+  expect(sabit(0)).toBe(sabit(6))                                                              // duran aracın önünde yol akmaz
+  for (const t of TEMALAR) for (const ch of [...t.gok, ...t.zemin, t.izUst, t.izAlt])           // genişlik tuzağı yok
+    expect(/^[\x20-\x7e\u2500-\u259f]$/.test(ch)).toBe(true)
   expect(temaSec(2, 1000).ad).toBe(temaSec(2, 1000).ad)
 })
 
