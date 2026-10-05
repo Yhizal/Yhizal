@@ -1,4 +1,5 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
+import { svgSerit, svgDusunuyor } from "./svgsahne.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -495,7 +496,7 @@ export function register(on) {
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Input, Select, Markdown, Raster } = $.ui.resolve(e);
+    const { Box, Text, Button, Input, Select, Markdown, Raster, Svg } = $.ui.resolve(e);
     const { value: kosular = [] } = await $.state.get(KOSULAR);
     const { value: dan = null } = await $.state.get(DANISMAN);
     const { value: mod = null } = await $.state.get(MOD);
@@ -516,6 +517,7 @@ export function register(on) {
     // Dar panelde (ya da mobilde) tek satırlık özet.
     const SW = SERIT_W + 2;
     const raster = Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
+    const svg = Boolean(Svg) && !raster; // Claude Code uygulaması (masaüstü, web, VS Code, mobil): animasyonu uygulama oynatır
     const uyeSatiri = (u, i) => {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };
@@ -531,6 +533,13 @@ export function register(on) {
       const sag = kosuyor
         ? [Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }), Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
         : [Text({ children: " ".repeat(11) })];
+      if (svg && (kosuyor || fableMesgul)) {
+        const bilgi = Box({ key: `ui-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: `${kisaModel(r.model)}${kosuyor && !fableMesgul ? ` · ${tema.ad}` : ""}  ` }),
+          ...(fableMesgul ? [Text({ color: "magenta", children: "düşünüyor…" })] : sag), ...buton] });
+        const kaynak = fableMesgul ? svgDusunuyor() : svgSerit(tema.ad, ilerleme(k, stat), k.durum !== "calisiyor", `s-${u}`);
+        return Box({ key: `u-${u}`, flexDirection: "column", children: [bilgi,
+          Svg({ key: `s-${u}`, source: kaynak, alt: fableMesgul ? "Fable düşünüyor" : `${u}: ${yuzde.trim()} ${tema.ad}`, isInteractive: true })] });
+      }
       if (!genis) {
         const ozet = fableMesgul ? `${spin} düşünüyor` : !k ? "· bekliyor" : k.durum === "hata" || k.durum === "iptal" ? `✖ ${k.durum} ${gecen}`
           : `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`;

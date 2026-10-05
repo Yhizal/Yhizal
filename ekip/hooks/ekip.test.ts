@@ -213,7 +213,15 @@ test('terminalde çalışan üye Raster sahnesiyle çizilir ve saat blit ile can
   expect(blitler.length).toBeGreaterThan(0)
   expect(blitler.at(-1).key).toBe('r-test-yazici')
   await ui.unmount()
-  const ui2 = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip', props })
-  expect(await ui2.find({ type: 'Raster' } as never)).toBeUndefined()
+  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
+    const ui2 = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip', props })
+    expect(await ui2.find({ type: 'Raster' } as never)).toBeUndefined()
+    const svg: any = await ui2.find({ type: 'Svg' } as never)
+    expect(svg).toBeDefined()
+    await ui2.unmount()
+  }
+  const ui3 = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip', props: { ...(props as any), bodyColumns: 50 } as never })
+  expect(await ui3.find({ type: 'Svg' } as never)).toBeDefined()   // dar panelde de vektör şerit (ölçeklenir)
+  const ui2 = ui3
   await ui2.unmount()
 })
