@@ -84,10 +84,10 @@ const TEMA = {
 
 const bayrak = bitti => {
   const kareler = Array.from({ length: 6 }, (_, y) => [0, 1].map(x => `<rect x="${x * 2.5}" y="${y * 2.5}" width="2.5" height="2.5" fill="${(x + y) % 2 ? "#111111" : "#FFFFFF"}"/>`).join("")).join("");
-  return `<g transform="translate(${VB_W - 9} 2)"><rect x="-1" width="1" height="${ZEMIN}" fill="#DDDDDD"/><g>${kareler}${bitti ? "" : `<animateTransform attributeName="transform" type="skewY" values="0;-6;0;5;0" dur="0.9s" repeatCount="indefinite"/>`}</g></g>`;
+  return `<g transform="translate(${VB_W - 9} 2)"><rect x="-1" width="1" height="${ZEMIN - 2}" fill="#DDDDDD"/><g>${kareler}${bitti ? "" : `<animateTransform attributeName="transform" type="skewY" values="0;-6;0;5;0" dur="0.9s" repeatCount="indefinite"/>`}</g></g>`;
 };
 const konfeti = x => ["#FFD54F", "#4FC3F7", "#F06292", "#81C784", "#FFB74D", "#BA68C8"].map((c, i) =>
-  `<g transform="translate(${x + i * 5} 0)"><g><animateTransform attributeName="transform" type="translate" from="0 -2" to="0 ${VB_H + 2}" dur="${1.2 + (i % 3) * 0.3}s" begin="${i * 0.15}s" repeatCount="indefinite"/>` +
+  `<g transform="translate(${x + i * 5} 0)"><g><animateTransform attributeName="transform" type="translate" from="0 -2" to="0 ${VB_H + 2}" dur="${1.2 + (i % 3) * 0.3}s" begin="${0.6 + i * 0.15}s" repeatCount="indefinite"/>` +
   `<rect x="-0.8" y="-0.8" width="1.6" height="1.6" fill="${c}"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="${0.8 + (i % 2) * 0.4}s" repeatCount="indefinite"/></rect></g></g>`).join("");
 
 // Bir üyenin şeridi: tam SVG belgesi. ilerleme 0..1 (yüzde adımlarına yuvarlanır: gereksiz yeniden çizim yok).
