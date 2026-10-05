@@ -111,36 +111,67 @@ export function ilerleme(kosu, stat) {
   return Math.min(0.95, Math.max(0.04, p));
 }
 
-// Emoji yok: her karakter tek sütun, yönü her fontta sağa. Her tema kendi içinde canlı:
-// kare = aracın kendi animasyonu, duman = hemen arkasındaki parçacıklar, yol = geriye akan manzara.
-export const TEMALAR = [
-  { ad: "maraton", kare: ["╯o╱", "╰o╲"], duman: ["¸'", "'¸"], iz: ",", yol: ["·", " ", " ", " "], renk: "yellow" },
-  { ad: "yarış", kare: ["▌█►", "▐█►"], duman: ["°∘", "∘°"], iz: "═", yol: ["─", "─", " ", " "], renk: "red" },
-  { ad: "su sporu", kare: ["▂▆►", "▄▆►"], duman: ["≈~", "~≈"], iz: "~", yol: ["~", " ", "∽", " "], renk: "cyan" },
-  { ad: "uçuş", kare: ["═╪►", "═╫►"], duman: ["-·", "·-"], iz: "┄", yol: ["·", " ", " ", "◦", " "], renk: "blue" },
-];
-const BAYRAK = ["▚▞", "▞▚"];
-const ARAC_W = 3;
-// Her üye farklı temada başlar; temalar 45 sn'de bir döner.
-export function temaSec(i, now) {
-  return TEMALAR[(i + Math.floor(now / 45_000)) % TEMALAR.length];
+// ── Piksel motoru: yarım bloklarla her hücre 2 piksel; 2 satırlık şeritte 4 piksel yüksek çizim ──
+// Emoji yok: her karakter tek sütun, yön her fontta sağa.
+export function piksel(satirlar) {
+  const g = Math.max(...satirlar.map(r => r.length));
+  const hucre = (u, a) => (u && a ? "█" : u ? "▀" : a ? "▄" : " ");
+  const on = (r, c) => satirlar[r]?.[c] === "#";
+  return [0, 2].map(r => Array.from({ length: g }, (_, c) => hucre(on(r, c), on(r + 1, c))).join(""));
 }
-// Pist: [iz][duman][araç][manzara][bayrak]; genişlik her durumda W + 2 sütun.
-export function pist(kosu, tema, frame, W = 16, stat) {
+
+// kare: 4 satırlık piksel çizimleri (sağa bakar), adım adım değişir.
+// gok/zemin: araç önündeki manzara (sola akar); iz: aracın arkasında kalan.
+export const TEMALAR = [
+  { ad: "Clawd", renk: "#D97757", kare: [
+      [".#######.", "##.###.##", ".#######.", ".#.#.#.#."],
+      [".#######.", "##.###.##", ".#######.", "#.#.#.#.#"]],
+    gok: ["°", " ", " ", " ", " ", "∘", " ", " "], zemin: ["_", " ", ".", " "], izUst: " ", izAlt: "∴", izRenk: "#D97757" },
+  { ad: "yarış", renk: "red", kare: [
+      ["#.####....", ".#########", "##########", ".##....##."],
+      ["#.####....", ".#########", "##########", ".#.#..#.#."]],
+    gok: [" ", " ", " ", " "], zemin: ["─", "─", " ", " "], izUst: " ", izAlt: "═", izRenk: "red" },
+  { ad: "yelken", renk: "white", kare: [
+      ["....#.....", "....##....", "#########.", ".#######.."],
+      ["....#.....", "....###...", "#########.", ".#######.."]],
+    gok: [" ", "ᵥ", " ", " ", " ", " "], zemin: ["~", "≈", "~", " "], izUst: " ", izAlt: "≈", izRenk: "cyan" },
+  { ad: "uçuş", renk: "blue", kare: [
+      ["#........#", "#########.", "..###....#", ".........."],
+      ["#.........", "##########", "..###.....", ".........."]],
+    gok: ["∘", " ", " ", " ", " "], zemin: [" ", " ", "·", " ", " ", " "], izUst: "╌", izAlt: " ", izRenk: "blue" },
+  { ad: "maraton", renk: "yellow", kare: [
+      ["...##", "..###", "..#..", ".#..#"],
+      ["...##", "..##.", "..#..", "..##."]],
+    gok: [" ", " ", " ", " "], zemin: ["·", " ", " "], izUst: " ", izAlt: ",", izRenk: "yellow" },
+];
+const BAYRAK = [["▀▄", "▀▄"], ["▄▀", "▄▀"]];
+export const SERIT_W = 26; // pist genişliği (bayrak hariç)
+// Her üye farklı temada başlar; tema koşu başında seçilir ve koşu boyunca sabit kalır.
+export function temaSec(i, t) {
+  return TEMALAR[(i + Math.floor(t / 45_000)) % TEMALAR.length];
+}
+
+// İki satırlık şerit: { ust, alt } — her biri Text parça listesi, genişlik her durumda SERIT_W + 2.
+export function serit(kosu, tema, frame, stat, W = SERIT_W) {
   const bitti = kosu.durum !== "calisiyor";
-  const pos = Math.round(ilerleme(kosu, stat) * (W - ARAC_W));
   const adim = Math.floor(frame / 2) % 2;
-  const parcalar = [];
-  const duman = bitti || pos < 1 ? "" : tema.duman[adim].slice(-Math.min(2, pos));
-  const iz = pos - duman.length;
-  if (iz > 0) parcalar.push({ color: tema.renk, dimColor: true, children: tema.iz.repeat(Math.max(0, iz - 3)) },
-    { color: tema.renk, children: tema.iz.repeat(Math.min(3, iz)) });
-  if (duman) parcalar.push({ color: "white", dimColor: true, children: duman });
-  parcalar.push({ color: bitti ? "green" : tema.renk, bold: true, children: tema.kare[bitti ? 0 : adim] });
-  const kalan = W - pos - ARAC_W;
-  if (kalan > 0) parcalar.push({ dimColor: true, children: Array.from({ length: kalan }, (_, i) => tema.yol[(pos + ARAC_W + i + (frame >> 1)) % tema.yol.length]).join("") });
-  parcalar.push({ color: "white", dimColor: bitti, children: BAYRAK[bitti ? 0 : adim] });
-  return parcalar.filter(x => x.children);
+  const [ust, alt] = piksel(tema.kare[bitti ? 0 : adim]);
+  const aw = ust.length;
+  const pos = Math.round(ilerleme(kosu, stat) * (W - aw));
+  const akis = frame >> 1;
+  const manzara = (desen, bas, n) => Array.from({ length: n }, (_, i) => desen[(bas + i + akis) % desen.length]).join("");
+  const iz = (ch, n) => (n > 0 ? ch.repeat(n) : "");
+  const kalan = W - pos - aw;
+  const renk = bitti ? "green" : tema.renk;
+  const bayrak = BAYRAK[bitti ? 0 : adim];
+  const parca = (izCh, sprite, desen, b) => [
+    ...(pos > 3 ? [{ color: tema.izRenk, dimColor: true, children: iz(izCh, pos - 3) }] : []),
+    ...(pos > 0 ? [{ color: tema.izRenk, children: iz(izCh, Math.min(3, pos)) }] : []),
+    { color: renk, bold: true, children: sprite },
+    ...(kalan > 0 ? [{ dimColor: true, children: manzara(desen, pos + aw, kalan) }] : []),
+    { color: "white", dimColor: bitti, children: b },
+  ].filter(x => x.children !== "");
+  return { ust: parca(tema.izUst, ust, tema.gok, bayrak[0]), alt: parca(tema.izAlt, alt, tema.zemin, bayrak[1]) };
 }
 // Danışman düşünürken: soldan sağa kayan tarayıcı ışık.
 export function tarayici(frame, W = 16) {
@@ -436,38 +467,48 @@ export function register(on) {
     await $.state.get(SURUM);
     const liste = await ekipler($);
     const ekip = await aktifEkip($);
-    const genis = (e.props.bodyColumns ?? 80) >= 70;
+    const genis = (e.props.bodyColumns ?? 80) >= 88;
     const spin = SPIN[frame % SPIN.length];
     const calisan = kosular.filter(k => k.durum === "calisiyor").length;
     const modAyarla = m => void $.state.set(MOD, m);
     const girisVar = Boolean(Input && Select);
 
+    // Geniş panelde her üye 2 satırlık bir şerit: üstte ad + gökyüzü, altta model + zemin.
+    // Dar panelde (ya da mobilde) tek satırlık özet.
+    const SW = SERIT_W + 2;
     const uyeSatiri = (u, i) => {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };
+      const dan_ = r.rol === "danisman";
       const gecen = k ? sure((k.bitis ?? Date.now()) - k.baslangic) : "";
       const stat = k ? istatistik(adimBellek[k.tip], "s") : null;
       const yuzde = k ? `${Math.round(ilerleme(k, stat) * 100)}%`.padStart(4) : "";
-      const fableMesgul = r.rol === "danisman" && (taslak?.durum === "hazirlaniyor" || tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor");
-      const SUT = genis ? 29 : 22; // pist 16 + bayrak 2 + yüzde 5 + süre 6
-      const durumParca = fableMesgul && (!k || k.durum !== "calisiyor")
-        ? [Text({ color: "magenta", children: tarayici(frame) }), Text({ color: "magenta", children: "    düşünüyor" })]
-        : !k ? [Text({ dimColor: true, children: "· bekliyor".padEnd(SUT) })]
-        : k.durum === "hata" || k.durum === "iptal" ? [Text({ color: "red", children: `✖ ${k.durum} ${gecen}`.padEnd(SUT) })]
-        : genis ? [...pist(k, temaSec(i, k.baslangic), frame, 16, stat).map(Text),
-            Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }),
-            Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
-        : [Text({ color: k.durum === "bitti" ? "green" : "cyan", children: `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`.padEnd(22) })];
-      return Box({
-        key: `u-${u}`, flexDirection: "row",
-        children: [
-          Text({ color: r.rol === "danisman" ? "magenta" : "white", bold: r.rol === "danisman", children: `${r.rol === "danisman" ? "◆" : "▸"} ${u.slice(0, 18).padEnd(19)}` }),
-          Text({ dimColor: true, children: `${kisaModel(r.model).padEnd(7)}` }),
-          ...durumParca,
-          Text({ children: "  " }),
-          ...(girisVar && i < 9 ? [Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: "görev ver", onPress: () => modAyarla({ tur: "gorev", uye: u }) })] : []),
-        ],
-      });
+      const fableMesgul = dan_ && (taslak?.durum === "hazirlaniyor" || tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor");
+      const kosuyor = k && k.durum !== "hata" && k.durum !== "iptal" && !(fableMesgul && k.durum !== "calisiyor");
+      const tema = k ? temaSec(i, k.baslangic) : null;
+      const ad = Text({ color: dan_ ? "magenta" : "white", bold: dan_, children: `${dan_ ? "◆" : "▸"} ${u.slice(0, 18).padEnd(19)}` });
+      const buton = girisVar && i < 9 ? [Text({ children: "  " }), Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: "görev ver", onPress: () => modAyarla({ tur: "gorev", uye: u }) })] : [];
+      const sag = kosuyor
+        ? [Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }), Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
+        : [Text({ children: " ".repeat(11) })];
+      if (!genis) {
+        const ozet = fableMesgul ? `${spin} düşünüyor` : !k ? "· bekliyor" : k.durum === "hata" || k.durum === "iptal" ? `✖ ${k.durum} ${gecen}`
+          : `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`;
+        return Box({ key: `u-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: kisaModel(r.model).padEnd(7) }),
+          Text({ color: fableMesgul ? "magenta" : !k ? "gray" : k.durum === "bitti" ? "green" : k.durum === "calisiyor" ? "cyan" : "red", children: ozet.padEnd(22) }), ...buton] });
+      }
+      const [ust, alt] = fableMesgul
+        ? [[Text({ color: "magenta", children: tarayici(frame, SW) })], [Text({ color: "magenta", dimColor: true, children: "Fable düşünüyor…".padEnd(SW) })]]
+        : kosuyor
+        ? (({ ust, alt }) => [ust.map(Text), alt.map(Text)])(serit(k, tema, frame, stat))
+        : !k
+        ? [[Text({ children: " ".repeat(SW) })], [Text({ dimColor: true, children: `${"┈".repeat(SERIT_W)}  `.slice(0, SW) })]]
+        : [[Text({ color: "red", children: `✖ ${k.durum} · ${gecen}`.padEnd(SW) })], [Text({ color: "red", dimColor: true, children: tek(k.cikti, SW).padEnd(SW) })]];
+      const alt2 = `  ${kisaModel(r.model)}${kosuyor ? ` · ${tema.ad}` : ""}`.slice(0, 21).padEnd(21); // ad sütunuyla aynı genişlik: üst ve alt pikseller üst üste oturur
+      return Box({ key: `u-${u}`, flexDirection: "column", children: [
+        Box({ key: `u1-${u}`, flexDirection: "row", children: [ad, ...ust, ...sag, ...buton] }),
+        Box({ key: `u2-${u}`, flexDirection: "row", children: [Text({ dimColor: true, children: alt2 }), ...alt] }),
+      ] });
     };
 
     const kosuSatiri = k => {

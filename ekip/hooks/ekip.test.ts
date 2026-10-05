@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, pist } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W } from './ekip.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -116,18 +116,21 @@ test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik s
   expect(ilerleme({ durum: 'calisiyor', adim: 10 } as never, st)).toBe(0.85)
   expect(ilerleme({ durum: 'bitti' } as never)).toBe(1)
   expect(temaSec(0, 0).ad).not.toBe(temaSec(0, 45_000).ad)
-  expect(new Set(TEMALAR.map((_, i) => temaSec(i, 0).ad)).size).toBe(4)
-  const metin = (k: any, t: any, f: number) => pist(k, t, f).map((x: any) => x.children).join('')
+  expect(new Set(TEMALAR.map((_, i) => temaSec(i, 0).ad)).size).toBe(TEMALAR.length)
+  const metin = (p: any[]) => p.map((x: any) => x.children).join('')
   for (const t of TEMALAR) for (const adim of [0, 3, 8, 20, 60]) for (const f of [0, 1, 2, 3]) {
-    const m = metin({ durum: 'calisiyor', adim }, t, f)
-    expect([...m].length).toBe(18)                                   // genişlik hep sabit
-    expect(/\p{Extended_Pictographic}/u.test(m)).toBe(false)         // emoji yok → yön ve genişlik her fontta aynı
+    const { ust, alt } = serit({ durum: 'calisiyor', adim } as never, t, f)
+    for (const m of [metin(ust), metin(alt)]) {
+      expect([...m].length).toBe(SERIT_W + 2)                     // iki satır da hep aynı genişlikte
+      expect(/\p{Extended_Pictographic}/u.test(m)).toBe(false)     // emoji yok
+    }
   }
-  for (const t of TEMALAR) for (const k of t.kare) expect(/[►o]/.test(k)).toBe(true)
-  for (const t of TEMALAR) expect([...pist({ durum: 'calisiyor', adim: 0 } as never, t, 0, 4).map((x: any) => x.children).join('')].length).toBe(6) // pos=0 taşmaz
+  for (const t of TEMALAR) for (const k of t.kare) expect(k.length).toBe(4)   // 4 piksel yükseklik
+  expect(piksel(['#.', '##', '.#', '..'])).toEqual(['█▄', ' ▀'])
+  const son = serit({ durum: 'bitti' } as never, TEMALAR[0], 0)
+  expect(metin(son.ust).endsWith(piksel(TEMALAR[0].kare[0])[0] + '▀▄')).toBe(true) // bitince araç bayrakta
+  expect(son.ust.find((x: any) => x.children.includes('█'))?.color).toBe('green')
   expect(temaSec(2, 1000).ad).toBe(temaSec(2, 1000).ad)
-  const son = metin({ durum: 'bitti' }, TEMALAR[0], 0)
-  expect(son.endsWith(TEMALAR[0].kare[0] + '▚▞')).toBe(true)        // bitince araç bayrağa varmış
 })
 
 test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', async ($, on) => {
@@ -158,5 +161,31 @@ test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', as
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:surucu', 'ekip:testci'])
   expect(spawned[0].prompt).toBe('uart_dma.c yaz')
   expect(await ui.find({ type: 'Text', text: /Fable atıyor, Opus yürütüyor/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('hex renk (Clawd turuncusu) motor tarafından kabul edilir', { plugins: [{ name: 'renk', register: (on: any) => {
+  on('ui.render', { component: 'AbovePrompt' }, async ($: any, e: any) => { const { Text } = $.ui.resolve(e); return Text({ key: 'c', color: '#D97757', children: '▄█▀███▀█▄' }) })
+} }] } as never, async ($) => {
+  const ui = await $.ui.mount({ plugin: 'renk', surface: 'terminal', component: 'AbovePrompt', props: { bodyColumns: 100 } as never })
+  expect(await ui.find({ type: 'Text', text: /▄█▀███▀█▄/ })).toBeDefined()
+  await ui.unmount()
+})
+
+test('şeridin iki satırı aynı sütundan başlar (piksel hizası)', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('agent.spawn', () => ({ model: 'opus', agentId: 'h1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:test-yazici' } as never)
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 120, placement: 'dock' } as never })
+  const satirlar = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
+  const ad = satirlar.find(t => t.startsWith('▸ test-yazici'))!
+  const model = satirlar.find(t => /^  opus · /.test(t))!
+  expect([...ad].length).toBe([...model].length)
   await ui.unmount()
 })
