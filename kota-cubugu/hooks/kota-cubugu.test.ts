@@ -1,5 +1,6 @@
 import { test, expect } from 'claude-code/testing'
-import { pace, dur, heat } from './kota-cubugu.mjs'
+import { pace, dur, heat, kotaSatirlari } from './kota-cubugu.mjs'
+import { kotaKarti } from './cam.mjs'
 
 const H = 3600_000
 const NOW = Date.parse('2026-10-05T12:00:00Z')
@@ -80,4 +81,12 @@ test('önbellek durumu: sıcak → %20 altında uyarı → soğuk; soğukta yeni
   expect(s3.sicak).toBe(false)
   expect(bin(s3.ctx)).toBe('82k')
   expect(cacheDurum(null, 0)).toBeNull()                              // ilk yanıttan önce hiçbir şey gösterme
+})
+
+test('cam kart: dönem sonu tahmini gölgesi ve dakika içinde değişmeyen SVG metni', () => {
+  const lim = [{ kind: 'five_hour', percentUsed: 20, resetsAt: at(3 * H) }]
+  const [r] = kotaSatirlari(lim, NOW)
+  expect(r.hayalet).toBe(0.5) // 2 saatte %20 → 5 saatte ~%50
+  expect(r.durum?.ton).toBe('yesil')
+  expect(kotaKarti(kotaSatirlari(lim, NOW + 5_000))).toBe(kotaKarti(kotaSatirlari(lim, NOW)))
 })

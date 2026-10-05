@@ -1,3 +1,5 @@
+import { kotaKarti } from "./cam.mjs";
+
 const VISIBLE = { plugin: "kota-cubugu", key: "visible" };
 const LIMITS = { plugin: "kota-cubugu", key: "limits" };
 const FRAME = { plugin: "kota-cubugu", key: "frame" };
@@ -52,6 +54,20 @@ export function cacheDurum(c, now) {
   if (kalan <= 0) return { sicak: false, ctx: c.ctx, neden: c.neden, isabet, iska: c.iska };
   return { sicak: true, kalan, oran: kalan / c.ttlMs, ttl: c.ttlMs >= TTL.abonelik ? "1sa" : "5dk", isabet, iska: c.iska, uyari: kalan / c.ttlMs < 0.2 };
 }
+// Cam kartın önbellek satırı; kalan süre dakikalık yazılır, çubuk arada SMIL ile erir.
+export function onbellekVerisi(c, now) {
+  const cd = cacheDurum(c, now);
+  if (!cd) return null;
+  const ozet = `isabet %${cd.isabet} · ıskalama ${cd.iska}${cd.iska && c.neden ? ` (${c.neden})` : ""}`;
+  if (!cd.sicak) return { sicak: false, yazi: `sonraki mesaj ${bin(cd.ctx)} token yeniden yazar`, ozet };
+  const saniye = cd.kalan >= 120_000 ? Math.ceil(cd.kalan / 60_000) * 60 : Math.ceil(cd.kalan / 1000);
+  return {
+    sicak: true, ton: cd.uyari ? "sari" : "yesil", ttl: cd.ttl,
+    oran: Math.round(saniye * 1000 / c.ttlMs * 300) / 300, saniye,
+    kalan: `${sureKisa(saniye * 1000)} kaldı`, kisa: ozet, ozet: `Önbellek ${cd.ttl} · ${ozet}`,
+  };
+}
+
 function sureKisa(ms) {
   const sn = Math.ceil(ms / 1000);
   return sn >= 60 ? `${Math.ceil(sn / 60)}dk` : `${sn}sn`;
@@ -99,6 +115,35 @@ export function tempoText(p) {
   if (p.ahead > 10) return { color: "yellow", children: "  ▲ zamandan hızlı" };
   if (p.ahead < -10) return { color: "green", children: "  ▼ rahat" };
   return { dimColor: true, children: "  ● dengeli" };
+}
+
+const TON_ISI = { green: "yesil", yellow: "sari", red: "kirmizi" };
+const CIP = { five_hour: "5s", seven_day: "7g" };
+const ETIKET = { five_hour: "5 SAAT", seven_day: "HAFTALIK" };
+
+// Cam kartın satırları: dönem sonu tahmini (bugünkü hızla) çubukta çizgili gölge olarak görünür.
+// Değerler yuvarlanır ki SVG metni yalnız görünen bir şey değişince değişsin.
+export function kotaSatirlari(limits, now) {
+  return limits.map(l => {
+    const p = pace(l, now);
+    const t = tempoText(p);
+    const proj = p && p.elapsed > 0.05 ? Math.round(l.percentUsed / p.elapsed) : null;
+    const durum = !t ? null
+      : p.runsOut !== null ? { yazi: `~${dur(p.runsOut)}'da dolar`, ton: "kirmizi" }
+      : p.ahead > 10 ? { yazi: "zamandan hızlı", ton: "sari" }
+      : p.ahead < -10 ? { yazi: "rahat", ton: "yesil" }
+      : { yazi: "dengeli", ton: "gri" };
+    return {
+      kind: l.kind, cip: CIP[l.kind], etiket: ETIKET[l.kind],
+      yuzde: Math.round(Math.min(l.percentUsed, 100)), ton: TON_ISI[heat(l.percentUsed)],
+      imlec: p ? Math.round(p.elapsed * 300) / 300 : null,
+      hayalet: proj !== null && proj > l.percentUsed ? Math.min(100, proj) / 100 : null,
+      hayaletTon: proj !== null ? TON_ISI[heat(proj)] : null,
+      sifirlanma: p ? dur(p.left) : "?",
+      durum, nabiz: l.percentUsed >= HOT,
+      ipucu: `${ETIKET[l.kind]}: %${Math.round(l.percentUsed)} kullanıldı · pencerenin %${p ? Math.round(p.elapsed * 100) : "?"}'i geçti${proj !== null ? ` · bu hızla dönem sonu ~%${proj}` : ""}`,
+    };
+  });
 }
 
 function pick(limits) {
@@ -182,9 +227,17 @@ export function register(on) {
     if (!visible) return below;
     const { value: limits = [] } = await $.state.get(LIMITS);
     const { value: frame = 0 } = await $.state.get(FRAME);
-    const { Box, Text } = $.ui.resolve(e);
-    const wide = (e.props.bodyColumns ?? 80) >= 70;
+    const { Box, Text, Svg } = $.ui.resolve(e);
     const now = Date.now();
+    const { value: c = null } = await $.state.get(CACHE);
+    const ob = onbellekVerisi(c, now);
+    if (Svg && e.surface !== "terminal" && (limits.length || ob)) {
+      const satirlar = kotaSatirlari(limits, now);
+      const alt = [...satirlar.map(r => r.ipucu), ...(ob ? [ob.sicak ? `${ob.ozet}, ${ob.kalan}` : `Önbellek soğuk, ${ob.yazi}`] : [])].join(" — ");
+      const kart = Svg({ key: "kota-cam", source: kotaKarti(satirlar, ob), alt, isInteractive: true });
+      return below ? Box({ flexDirection: "column", children: [below, kart] }) : kart;
+    }
+    const wide = (e.props.bodyColumns ?? 80) >= 70;
     const rows = limits.length
       ? limits.map(l => {
           const p = pace(l, now);
@@ -202,7 +255,6 @@ export function register(on) {
           });
         })
       : [Box({ key: "bekle", paddingX: 1, children: [Text({ dimColor: true, children: "⏳ kota: ilk yanıttan sonra görünür (yalnızca Pro/Max abonelikte)" })] })];
-    const { value: c = null } = await $.state.get(CACHE);
     const cd = cacheDurum(c, now);
     if (cd) {
       const renk = !cd.sicak ? "red" : cd.uyari ? "yellow" : "green";

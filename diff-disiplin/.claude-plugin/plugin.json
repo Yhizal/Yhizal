@@ -1,1 +1,1 @@
-{"name":"diff-disiplin","version":"0.4.0","description":"Revizyonlarda sadece diff; iş belleğine dayalı ETA (ortalama ± standart sapma, /tahmin); var olan dosyaya Write engeli; uzun tur bildirimi. /diffmod ile aç-kapa.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}
+{"name":"diff-disiplin","version":"0.5.0","description":"Revizyonlarda sadece diff; iş belleğine dayalı ETA (ortalama ± standart sapma, /tahmin); var olan dosyaya Write engeli; uzun tur bildirimi; uygulamada 3D cam kart. /diffmod ile aç-kapa.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}

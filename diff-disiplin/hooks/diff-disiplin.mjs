@@ -1,3 +1,5 @@
+import { isKarti } from "./cam.mjs";
+
 const ENABLED = { plugin: "diff-disiplin", key: "enabled" };
 const INJECTED = { plugin: "diff-disiplin", key: "injected" };
 const TURN = { plugin: "diff-disiplin", key: "turn" };
@@ -84,7 +86,29 @@ export function barParts(frac, frame, Text) {
   return parts;
 }
 
-const REVISION = /\b(düzelt|değiştir|güncelle|revize|ekle|kaldır|refactor|fix|update|change|modify|patch|edit)\w*/i;
+// Cam kart (uygulama yüzeyleri): iş sürerken kalan süre her saniye değişir, kart resim olarak çizilir.
+export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
+  let is = null;
+  if (t) {
+    const tah = tahmin(bellek, t.kat ?? "diger");
+    const el = now - t.startedAt;
+    const frac = ilerleme(el, t.adim ?? 0, tah);
+    const k = kalan(el, tah);
+    const ton = k.asim ? "kirmizi" : k.etiket ? "mor" : "mavi";
+    const kaynak = tah.kaynak === "varsayılan" ? "varsayılan" : `${tah.kaynak === "genel" ? "genel" : KAT_AD[tah.kaynak]} n=${tah.sure.n}`;
+    is = {
+      oran: Math.round(frac * 300) / 300, yuzde: Math.round(frac * 100), ton,
+      tur: KAT_AD[t.kat ?? "diger"],
+      kalan: k.asim ? `tahminden uzun +${fmt(k.ms)}` : `~${fmt(k.ms)} kaldı${k.etiket}`,
+      kalanTon: k.asim ? "kirmizi" : k.etiket ? "mor" : "sari",
+      detay: `${t.adim ?? 0} adım  ·  ${kaynak}  ·  ort ${fmt(tah.sure.ort)} ± ${fmt(tah.sure.ss)}`,
+    };
+  }
+  const alt = (is ? `İş tahmini %${is.yuzde}, ${is.kalan}. ` : "") + `diff-only ${durum.acik ? "açık" : "kapalı"}, ${durum.prompt} prompt'a eklendi, ${durum.edit} edit`;
+  return { source: isKarti(is, durum), alt, isInteractive: !is };
+}
+
+const REVISION =/\b(düzelt|değiştir|güncelle|revize|ekle|kaldır|refactor|fix|update|change|modify|patch|edit)\w*/i;
 const FRESH = /\b(sıfırdan|baştan yaz|yeni dosya|from scratch|new file)\b/i;
 const RULE =
   "\n\n[diff-disiplin] Mevcut kodu değiştiriyorsan dosyanın tamamını yeniden yazma. " +
@@ -202,7 +226,11 @@ export function register(on) {
     const { value: frame = 0 } = await $.state.get(FRAME);
     const { value: edits = 0 } = await $.state.get(EDITS);
     const { value: blocked = 0 } = await $.state.get(BLOCKED);
-    const { Box, Text } = $.ui.resolve(e);
+    const { Box, Text, Svg } = $.ui.resolve(e);
+    if (Svg && e.surface !== "terminal") {
+      const kart = Svg({ key: "diff-cam", ...isKartiVerisi(t, bellek, { acik: enabled, prompt: n, edit: edits, engel: blocked }) });
+      return below ? Box({ flexDirection: "column", children: [below, kart] }) : kart;
+    }
     const line = Box({
       flexDirection: "row", paddingX: 1,
       children: [
