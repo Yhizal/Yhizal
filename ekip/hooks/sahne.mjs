@@ -39,7 +39,7 @@ function sprite(t, x0, y0, satirlar, palet) {
 // ── Temalar: arka plan (paralaks), sprite kareleri (sağa bakar), parçacıklar ──
 const P = {
   clawd: { O: hex("#D97757"), S: hex("#B5583D"), E: hex("#1B1B1B") },
-  araba: { R: hex("#FF3B3B"), G: hex("#9BD4F5"), K: hex("#151515"), k: hex("#8A8A8A"), W: hex("#FFF3B0") },
+  araba: { R: hex("#FF3B3B"), G: hex("#9BD4F5"), K: hex("#0A0A0A"), k: hex("#A0A0A0"), W: hex("#FFF3B0") },
   tekne: { W: hex("#FFFFFF"), w: hex("#DCE6EE"), M: hex("#6B4423"), B: hex("#8B5A2B"), b: hex("#6E4520"), F: hex("#E53935") },
   ucak: { S: hex("#F2F5F8"), s: hex("#AEB8C4"), B: hex("#1E5AA8"), R: hex("#D32F2F"), p: hex("#C8C8C8") },
   roket: { W: hex("#F4F4F4"), w: hex("#BFC5CC"), R: hex("#E53935"), B: hex("#4FC3F7") },
