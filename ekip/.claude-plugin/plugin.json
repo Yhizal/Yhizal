@@ -1,1 +1,1 @@
-{"name":"ekip","version":"0.3.0","description":"Ajan ekibi platformu: hedefi yaz, en güncel Fable ekibi kurup görevleri atasın, en güncel Opus yürütsün; temalı yarış çubuklarıyla canlı izle. /ekip ile panel.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}
+{"name":"ekip","version":"0.4.0","description":"Ajan ekibi platformu: hedefi yaz, en güncel Fable ekibi kurup görevleri atasın, en güncel Opus yürütsün; Clawd, roket, yarış, yelken ve uçuş temalı piksel şeritlerde canlı izle. /ekip ile panel.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}
