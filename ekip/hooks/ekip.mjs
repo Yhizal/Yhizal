@@ -8,6 +8,8 @@ const SURUM = { plugin: "ekip", key: "surum" }; // ekip listesi değişince pane
 const INCELEME = { plugin: "ekip", key: "incelemeId" };
 const TASLAK = { plugin: "ekip", key: "taslak" };
 const TUR = { plugin: "ekip", key: "tur" };
+const ADIM_BELLEK = { plugin: "ekip", key: "adimBellek" };
+const ORNEK_MAX = 40;
 const PANE = "ekip";
 
 // Takma adlar Claude Code tarafından her zaman ailenin en güncel sürümüne çözülür:
@@ -89,31 +91,62 @@ export function spec(name, ekip) {
 }
 
 // İlerleme: alt ajanın adım sayısından, bitene kadar %95'i geçmeyen yumuşak eğri.
-export function ilerleme(kosu) {
+// Ajan tipi başına adım belleğinden aritmetik ortalama ve örneklem standart sapması.
+export function istatistik(ornekler, alan) {
+  const x = (ornekler ?? []).map(o => o[alan]).filter(Number.isFinite);
+  const n = x.length;
+  if (!n) return { n: 0, ort: 0, ss: 0 };
+  const ort = x.reduce((a, b) => a + b, 0) / n;
+  const ss = n > 1 ? Math.sqrt(x.reduce((a, b) => a + (b - ort) ** 2, 0) / (n - 1)) : 0;
+  return { n, ort, ss };
+}
+// Ortalamaya kadar %0-85, sonra standart sapma ölçeğinde %95'e yaklaşır: geri gitmez, takılmaz.
+function egri(x, ort, ss) {
+  return x <= ort ? 0.85 * x / ort : 0.85 + 0.10 * (1 - Math.exp(-(x - ort) / Math.max(ss, ort * 0.15, 1)));
+}
+export function ilerleme(kosu, stat) {
   if (kosu.durum !== "calisiyor") return 1;
-  return Math.max(0.04, 0.95 * (1 - Math.exp(-(kosu.adim ?? 0) / 6)));
+  const adim = kosu.adim ?? 0;
+  const p = stat?.n >= 3 && stat.ort > 0 ? egri(adim, stat.ort, stat.ss) : 0.95 * (1 - Math.exp(-adim / 6));
+  return Math.min(0.95, Math.max(0.04, p));
 }
 
+// Emoji yok: her karakter tek sütun, yönü her fontta sağa. Her tema kendi içinde canlı:
+// kare = aracın kendi animasyonu, duman = hemen arkasındaki parçacıklar, yol = geriye akan manzara.
 export const TEMALAR = [
-  { ad: "maraton", arac: "🏃", bitis: "🏁", iz: "━", yol: ["·", " ", " "], renk: "yellow" },
-  { ad: "yarış", arac: "🏎\uFE0F", bitis: "🏁", iz: "═", yol: ["─", "─", " "], renk: "red" },
-  { ad: "su sporu", arac: "🚤", bitis: "⚓", iz: "≈", yol: ["~", "∽", "~", " "], renk: "cyan" },
-  { ad: "uçuş", arac: "🛩\uFE0F", bitis: "🛬", iz: "┈", yol: ["·", " ", "☁", " ", " "], renk: "blue" },
+  { ad: "maraton", kare: ["┌o┘", "└o┐"], duman: ["ε=", "=ε"], iz: "·", yol: ["·", " ", " ", " "], renk: "yellow" },
+  { ad: "yarış", kare: ["▐█►", "▐▇►"], duman: ["°∘", "∘°"], iz: "═", yol: ["─", "─", " ", " "], renk: "red" },
+  { ad: "su sporu", kare: ["▂▅►", "▃▅►"], duman: ["≈~", "~≈"], iz: "~", yol: ["~", " ", "∽", " "], renk: "cyan" },
+  { ad: "uçuş", kare: ["═╪►", "═╫►"], duman: ["-·", "·-"], iz: "┄", yol: ["·", " ", " ", "◦", " "], renk: "blue" },
 ];
+const BAYRAK = ["▚▞", "▞▚"];
+const ARAC_W = 3;
 // Her üye farklı temada başlar; temalar 45 sn'de bir döner.
 export function temaSec(i, now) {
   return TEMALAR[(i + Math.floor(now / 45_000)) % TEMALAR.length];
 }
-export function pist(kosu, tema, frame, W = 14) {
-  const pos = Math.round(ilerleme(kosu) * (W - 1));
+// Pist: [iz][duman][araç][manzara][bayrak]; genişlik her durumda W + 2 sütun.
+export function pist(kosu, tema, frame, W = 16, stat) {
+  const bitti = kosu.durum !== "calisiyor";
+  const pos = Math.round(ilerleme(kosu, stat) * (W - ARAC_W));
+  const adim = Math.floor(frame / 2) % 2;
   const parcalar = [];
-  for (let i = 0; i < W; i++) {
-    if (i === pos) parcalar.push({ color: "white", bold: true, children: tema.arac });
-    else if (i < pos) parcalar.push({ color: tema.renk, children: tema.iz });
-    else parcalar.push({ dimColor: true, children: tema.yol[(i + frame) % tema.yol.length] });
-  }
-  parcalar.push({ children: tema.bitis });
-  return parcalar;
+  const duman = bitti ? "" : tema.duman[adim].slice(-Math.min(2, pos));
+  const iz = pos - duman.length;
+  if (iz > 0) parcalar.push({ color: tema.renk, dimColor: true, children: tema.iz.repeat(Math.max(0, iz - 3)) },
+    { color: tema.renk, children: tema.iz.repeat(Math.min(3, iz)) });
+  if (duman) parcalar.push({ color: "white", dimColor: true, children: duman });
+  parcalar.push({ color: bitti ? "green" : "white", bold: true, children: tema.kare[bitti ? 0 : adim] });
+  const kalan = W - pos - ARAC_W;
+  if (kalan > 0) parcalar.push({ dimColor: true, children: Array.from({ length: kalan }, (_, i) => tema.yol[(pos + ARAC_W + i + frame) % tema.yol.length]).join("") });
+  parcalar.push({ color: bitti ? "green" : "white", bold: bitti, children: BAYRAK[bitti ? 0 : adim] });
+  return parcalar.filter(x => x.children);
+}
+// Danışman düşünürken: soldan sağa kayan tarayıcı ışık.
+export function tarayici(frame, W = 16) {
+  const p = frame % (2 * W - 2);
+  const x = p < W ? p : 2 * W - 2 - p;
+  return Array.from({ length: W }, (_, i) => (Math.abs(i - x) === 0 ? "●" : Math.abs(i - x) === 1 ? "•" : Math.abs(i - x) === 2 ? "∙" : "·")).join("");
 }
 
 export function jsonAl(text) {
@@ -328,6 +361,10 @@ export function register(on) {
     ticker?.cancel?.();
     ticker = null;
     await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef>]" });
+    try {
+      const b = await $.store.get("adimBellek");
+      if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
+    } catch {}
     try { await yukle($, (await aktifEkip($)).ad); } catch (err) { $.ui.toast(`ekip yüklenemedi: ${String(err).slice(0, 80)}`); }
     return r;
   });
@@ -361,6 +398,12 @@ export function register(on) {
     const durum = e.isAborted ? "iptal" : e.reason && e.reason !== "answer" ? "hata" : "bitti";
     const kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000) };
     await $.state.set(KOSULAR, k.map((x, j) => (j === i ? kosu : x)));
+    if (durum === "bitti" && (kosu.adim ?? 0) > 0) {
+      const { value: b = {} } = await $.state.get(ADIM_BELLEK);
+      const yeni = { ...b, [kosu.tip]: [...(b[kosu.tip] ?? []), { s: kosu.adim, d: kosu.bitis - kosu.baslangic }].slice(-ORNEK_MAX) };
+      await $.state.set(ADIM_BELLEK, yeni);
+      await $.store.set("adimBellek", yeni);
+    }
     const ad = kosu.tip.startsWith(`${P}:`) ? kosu.tip.slice(P.length + 1) : kosu.tip;
     $.ui.toast(`${durum === "bitti" ? "✔" : "✖"} ${ad} ${durum} (${sure(kosu.bitis - kosu.baslangic)})`);
     const { value: inc = null } = await $.state.get(INCELEME);
@@ -389,6 +432,7 @@ export function register(on) {
     const { value: frame = 0 } = await $.state.get(FRAME);
     const { value: taslak = null } = await $.state.get(TASLAK);
     const { value: tur = null } = await $.state.get(TUR);
+    const { value: adimBellek = {} } = await $.state.get(ADIM_BELLEK);
     await $.state.get(SURUM);
     const liste = await ekipler($);
     const ekip = await aktifEkip($);
@@ -402,12 +446,17 @@ export function register(on) {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };
       const gecen = k ? sure((k.bitis ?? Date.now()) - k.baslangic) : "";
-      const durumParca = !k ? [Text({ dimColor: true, children: "· bekliyor".padEnd(22) })]
+      const stat = k ? istatistik(adimBellek[k.tip], "s") : null;
+      const yuzde = k ? `${Math.round(ilerleme(k, stat) * 100)}%`.padStart(4) : "";
+      const fableMesgul = r.rol === "danisman" && (taslak?.durum === "hazirlaniyor" || tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor");
+      const durumParca = fableMesgul && (!k || k.durum !== "calisiyor")
+        ? [Text({ color: "magenta", children: tarayici(frame) }), Text({ color: "magenta", children: "    düşünüyor" })]
+        : !k ? [Text({ dimColor: true, children: "· bekliyor".padEnd(22) })]
         : k.durum === "hata" || k.durum === "iptal" ? [Text({ color: "red", children: `✖ ${k.durum} ${gecen}`.padEnd(22) })]
-        : genis ? [...pist(k, temaSec(i, Date.now()), frame).map(Text),
-            Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${Math.round(ilerleme(k) * 100)}%`.padStart(5) }),
-            Text({ dimColor: true, children: ` ${gecen}` })]
-        : [Text({ color: k.durum === "bitti" ? "green" : "cyan", children: `${k.durum === "bitti" ? "✔" : spin} ${Math.round(ilerleme(k) * 100)}% ${gecen}`.padEnd(22) })];
+        : genis ? [...pist(k, temaSec(i, Date.now()), frame, 16, stat).map(Text),
+            Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }),
+            Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
+        : [Text({ color: k.durum === "bitti" ? "green" : "cyan", children: `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`.padEnd(22) })];
       return Box({
         key: `u-${u}`, flexDirection: "row",
         children: [

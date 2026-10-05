@@ -20,6 +20,6 @@ export type EkipMod =
 
 declare module "claude-code" {
   interface PluginState {
-    ekip: { kosular: EkipKosu[]; danisman: EkipDanisman; mod: EkipMod; frame: number; aktif: string; surum: number; incelemeId: string | null; taslak: EkipTaslak; tur: EkipTur };
+    ekip: { kosular: EkipKosu[]; danisman: EkipDanisman; mod: EkipMod; frame: number; aktif: string; surum: number; incelemeId: string | null; taslak: EkipTaslak; tur: EkipTur; adimBellek: Record<string, Array<{ s: number; d: number }>> };
   }
 }

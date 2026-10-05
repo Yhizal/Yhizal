@@ -110,10 +110,22 @@ test('Fable atamaları yalnız ekip üyelerine gider', () => {
 test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik sabit', () => {
   expect(ilerleme({ durum: 'calisiyor', adim: 0 } as never)).toBe(0.04)
   expect(ilerleme({ durum: 'calisiyor', adim: 100 } as never)).toBeLessThanOrEqual(0.95)
+  const st = { n: 5, ort: 10, ss: 3 }
+  let once = 0
+  for (let a = 0; a < 60; a++) { const f = ilerleme({ durum: 'calisiyor', adim: a } as never, st); expect(f).toBeGreaterThanOrEqual(once); once = f }
+  expect(ilerleme({ durum: 'calisiyor', adim: 10 } as never, st)).toBe(0.85)
   expect(ilerleme({ durum: 'bitti' } as never)).toBe(1)
   expect(temaSec(0, 0).ad).not.toBe(temaSec(0, 45_000).ad)
   expect(new Set(TEMALAR.map((_, i) => temaSec(i, 0).ad)).size).toBe(4)
-  for (const adim of [0, 5, 30]) expect(pist({ durum: 'calisiyor', adim } as never, TEMALAR[1], 3).length).toBe(15)
+  const metin = (k: any, t: any, f: number) => pist(k, t, f).map((x: any) => x.children).join('')
+  for (const t of TEMALAR) for (const adim of [0, 3, 8, 20, 60]) for (const f of [0, 1, 2, 3]) {
+    const m = metin({ durum: 'calisiyor', adim }, t, f)
+    expect([...m].length).toBe(18)                                   // genişlik hep sabit
+    expect(/\p{Extended_Pictographic}/u.test(m)).toBe(false)         // emoji yok → yön ve genişlik her fontta aynı
+  }
+  for (const t of TEMALAR) for (const k of t.kare) expect(/[►o]/.test(k)).toBe(true)
+  const son = metin({ durum: 'bitti' }, TEMALAR[0], 0)
+  expect(son.endsWith(TEMALAR[0].kare[0] + '▚▞')).toBe(true)        // bitince araç bayrağa varmış
 })
 
 test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', async ($, on) => {
