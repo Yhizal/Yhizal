@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, spec, durumu, incelemePrompt, sure } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, pist } from './ekip.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -75,4 +75,74 @@ test('panelden görev ver: tuş → görev kutusu → doğru ajan tipi başlar; 
     expect(toasts.some(x => /başlatılamadı/.test(x))).toBe(false)
     await ui.unmount()
   }
+})
+
+test('modeller takma adla: danışman en güncel Fable, işçiler en güncel Opus', () => {
+  expect(DANISMAN_MODEL).toBe('fable')
+  expect(ISCI_MODEL).toBe('opus')
+  for (const [ad, r] of Object.entries(ROLLER)) if (ad !== 'danisman') expect((r as any).model).toBe('opus')
+})
+
+test('Fable planı: JSON ayıklanır, ad temizlenir, izinsiz araç ve fazla üye atılır', () => {
+  const metin = 'Plan şöyle:\n' + JSON.stringify({ ad: 'UART Ekibi', amac: 'DMA sürücüsü', uyeler: [
+    { ad: 'Sürücü Yazıcı', aciklama: 'kod', talimat: 'HAL ile yaz', araclar: ['Read', 'Edit', 'Rm -rf'], gorev: 'uart_dma.c yaz' },
+    { ad: 'danisman', gorev: 'x' },
+    { ad: 'test', gorev: '' },
+    ...Array.from({ length: 6 }, (_, i) => ({ ad: `u${i}`, gorev: 'g' })),
+  ] })
+  const p: any = planDogrula(jsonAl(metin))
+  expect(p.ad).toBe('UART Ekibi')
+  expect(p.uyeler[0].name).toBe('surucu-yazici')
+  expect(p.uyeler[0].tools).toEqual(['Read', 'Edit'])
+  expect(p.uyeler[0].permissionMode).toBe('acceptEdits')
+  expect(p.uyeler[0].model).toBe('opus')
+  expect(p.uyeler.some((u: any) => u.name === 'danisman' || u.name === 'test')).toBe(false)
+  expect(p.uyeler.length).toBeLessThanOrEqual(5)
+  expect(planDogrula(jsonAl('json yok'))).toBeNull()
+})
+
+test('Fable atamaları yalnız ekip üyelerine gider', () => {
+  const ekip = { uyeler: ['danisman', 'surucu-yazici', 'testci'] }
+  const a = atamalar({ sonraki: [{ uye: 'Sürücü Yazıcı', gorev: 'IDLE kesmesini ekle' }, { uye: 'yabanci', gorev: 'x' }, { uye: 'danisman', gorev: 'y' }] }, ekip)
+  expect(a).toEqual([{ uye: 'surucu-yazici', gorev: 'IDLE kesmesini ekle' }])
+})
+
+test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik sabit', () => {
+  expect(ilerleme({ durum: 'calisiyor', adim: 0 } as never)).toBe(0.04)
+  expect(ilerleme({ durum: 'calisiyor', adim: 100 } as never)).toBeLessThanOrEqual(0.95)
+  expect(ilerleme({ durum: 'bitti' } as never)).toBe(1)
+  expect(temaSec(0, 0).ad).not.toBe(temaSec(0, 45_000).ad)
+  expect(new Set(TEMALAR.map((_, i) => temaSec(i, 0).ad)).size).toBe(4)
+  for (const adim of [0, 5, 30]) expect(pist({ durum: 'calisiyor', adim } as never, TEMALAR[1], 3).length).toBe(15)
+})
+
+test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', async ($, on) => {
+  mock.clock(on)
+  mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  const reg: string[] = []
+  on('agent.register', (_$: unknown, e: any) => (reg.push(e.name), { value: { agent: `ekip:${e.name}` } }) as never)
+  const modeller: string[] = []
+  on('model.complete', (_$: unknown, e: any) => (modeller.push(e.model), { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'UART Ekibi', amac: 'DMA', uyeler: [
+    { ad: 'surucu', talimat: 't', araclar: ['Read', 'Edit'], gorev: 'uart_dma.c yaz' },
+    { ad: 'testci', talimat: 't', araclar: ['Read', 'Bash'], gorev: 'test yaz' },
+  ] }) } }) as never)
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: 'opus' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'kur STM32 UART DMA sürücüsü', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 50))
+  expect(modeller[0]).toBe('fable')
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  expect(await ui.find({ type: 'Text', text: /Fable'ın planı: UART Ekibi/ })).toBeDefined()
+  await ui.press({ key: 'onay' })
+  expect(reg).toEqual(expect.arrayContaining(['surucu', 'testci']))
+  expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:surucu', 'ekip:testci'])
+  expect(spawned[0].prompt).toBe('uart_dma.c yaz')
+  expect(await ui.find({ type: 'Text', text: /Fable atıyor, Opus yürütüyor/ })).toBeDefined()
+  await ui.unmount()
 })
