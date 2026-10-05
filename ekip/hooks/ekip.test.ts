@@ -124,6 +124,8 @@ test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik s
     expect(/\p{Extended_Pictographic}/u.test(m)).toBe(false)         // emoji yok → yön ve genişlik her fontta aynı
   }
   for (const t of TEMALAR) for (const k of t.kare) expect(/[►o]/.test(k)).toBe(true)
+  for (const t of TEMALAR) expect([...pist({ durum: 'calisiyor', adim: 0 } as never, t, 0, 4).map((x: any) => x.children).join('')].length).toBe(6) // pos=0 taşmaz
+  expect(temaSec(2, 1000).ad).toBe(temaSec(2, 1000).ad)
   const son = metin({ durum: 'bitti' }, TEMALAR[0], 0)
   expect(son.endsWith(TEMALAR[0].kare[0] + '▚▞')).toBe(true)        // bitince araç bayrağa varmış
 })

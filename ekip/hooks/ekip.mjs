@@ -114,9 +114,9 @@ export function ilerleme(kosu, stat) {
 // Emoji yok: her karakter tek sütun, yönü her fontta sağa. Her tema kendi içinde canlı:
 // kare = aracın kendi animasyonu, duman = hemen arkasındaki parçacıklar, yol = geriye akan manzara.
 export const TEMALAR = [
-  { ad: "maraton", kare: ["┌o┘", "└o┐"], duman: ["ε=", "=ε"], iz: "·", yol: ["·", " ", " ", " "], renk: "yellow" },
-  { ad: "yarış", kare: ["▐█►", "▐▇►"], duman: ["°∘", "∘°"], iz: "═", yol: ["─", "─", " ", " "], renk: "red" },
-  { ad: "su sporu", kare: ["▂▅►", "▃▅►"], duman: ["≈~", "~≈"], iz: "~", yol: ["~", " ", "∽", " "], renk: "cyan" },
+  { ad: "maraton", kare: ["╯o╱", "╰o╲"], duman: ["¸'", "'¸"], iz: ",", yol: ["·", " ", " ", " "], renk: "yellow" },
+  { ad: "yarış", kare: ["▌█►", "▐█►"], duman: ["°∘", "∘°"], iz: "═", yol: ["─", "─", " ", " "], renk: "red" },
+  { ad: "su sporu", kare: ["▂▆►", "▄▆►"], duman: ["≈~", "~≈"], iz: "~", yol: ["~", " ", "∽", " "], renk: "cyan" },
   { ad: "uçuş", kare: ["═╪►", "═╫►"], duman: ["-·", "·-"], iz: "┄", yol: ["·", " ", " ", "◦", " "], renk: "blue" },
 ];
 const BAYRAK = ["▚▞", "▞▚"];
@@ -131,15 +131,15 @@ export function pist(kosu, tema, frame, W = 16, stat) {
   const pos = Math.round(ilerleme(kosu, stat) * (W - ARAC_W));
   const adim = Math.floor(frame / 2) % 2;
   const parcalar = [];
-  const duman = bitti ? "" : tema.duman[adim].slice(-Math.min(2, pos));
+  const duman = bitti || pos < 1 ? "" : tema.duman[adim].slice(-Math.min(2, pos));
   const iz = pos - duman.length;
   if (iz > 0) parcalar.push({ color: tema.renk, dimColor: true, children: tema.iz.repeat(Math.max(0, iz - 3)) },
     { color: tema.renk, children: tema.iz.repeat(Math.min(3, iz)) });
   if (duman) parcalar.push({ color: "white", dimColor: true, children: duman });
-  parcalar.push({ color: bitti ? "green" : "white", bold: true, children: tema.kare[bitti ? 0 : adim] });
+  parcalar.push({ color: bitti ? "green" : tema.renk, bold: true, children: tema.kare[bitti ? 0 : adim] });
   const kalan = W - pos - ARAC_W;
-  if (kalan > 0) parcalar.push({ dimColor: true, children: Array.from({ length: kalan }, (_, i) => tema.yol[(pos + ARAC_W + i + frame) % tema.yol.length]).join("") });
-  parcalar.push({ color: bitti ? "green" : "white", bold: bitti, children: BAYRAK[bitti ? 0 : adim] });
+  if (kalan > 0) parcalar.push({ dimColor: true, children: Array.from({ length: kalan }, (_, i) => tema.yol[(pos + ARAC_W + i + (frame >> 1)) % tema.yol.length]).join("") });
+  parcalar.push({ color: "white", dimColor: bitti, children: BAYRAK[bitti ? 0 : adim] });
   return parcalar.filter(x => x.children);
 }
 // Danışman düşünürken: soldan sağa kayan tarayıcı ışık.
@@ -449,11 +449,12 @@ export function register(on) {
       const stat = k ? istatistik(adimBellek[k.tip], "s") : null;
       const yuzde = k ? `${Math.round(ilerleme(k, stat) * 100)}%`.padStart(4) : "";
       const fableMesgul = r.rol === "danisman" && (taslak?.durum === "hazirlaniyor" || tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor");
+      const SUT = genis ? 29 : 22; // pist 16 + bayrak 2 + yüzde 5 + süre 6
       const durumParca = fableMesgul && (!k || k.durum !== "calisiyor")
         ? [Text({ color: "magenta", children: tarayici(frame) }), Text({ color: "magenta", children: "    düşünüyor" })]
-        : !k ? [Text({ dimColor: true, children: "· bekliyor".padEnd(22) })]
-        : k.durum === "hata" || k.durum === "iptal" ? [Text({ color: "red", children: `✖ ${k.durum} ${gecen}`.padEnd(22) })]
-        : genis ? [...pist(k, temaSec(i, Date.now()), frame, 16, stat).map(Text),
+        : !k ? [Text({ dimColor: true, children: "· bekliyor".padEnd(SUT) })]
+        : k.durum === "hata" || k.durum === "iptal" ? [Text({ color: "red", children: `✖ ${k.durum} ${gecen}`.padEnd(SUT) })]
+        : genis ? [...pist(k, temaSec(i, k.baslangic), frame, 16, stat).map(Text),
             Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }),
             Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
         : [Text({ color: k.durum === "bitti" ? "green" : "cyan", children: `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`.padEnd(22) })];
