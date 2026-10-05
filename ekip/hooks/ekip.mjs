@@ -1,3 +1,5 @@
+import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
+
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
 const DANISMAN = { plugin: "ekip", key: "danisman" };
@@ -68,6 +70,12 @@ export const SABLON_EKIPLER = [
 ];
 
 let aktifUyeler = new Set();
+// Raster animasyonu: render'ın çizdiği canlı şeritler; saat bunları blit ile yeniden boyar.
+const canli = new Map(); // key → { ad, ilerleme, bitti, bitis }
+let kareNo = 0;
+let anim = null;
+const ANIM_MS = 83; // ~12 kare/sn
+const KONFETI_MS = 2500;
 let ticker = null;
 
 export function sure(ms) {
@@ -261,6 +269,21 @@ async function kaydet($, liste) {
   await $.state.set(SURUM, v + 1);
 }
 
+function animasyon($) {
+  if (anim) return;
+  anim = $.clock.every(ANIM_MS, async () => {
+    kareNo++;
+    const { value: k = [] } = await $.state.get(KOSULAR);
+    const simdi = Date.now();
+    for (const [key, v] of canli) if (v.bitti && simdi - v.bitis > KONFETI_MS) canli.delete(key);
+    if (!canli.size && !k.some(x => x.durum === "calisiyor")) { anim?.cancel?.(); anim = null; return; }
+    for (const [key, v] of canli) {
+      const r = await $.ui.blit({ requestId: PANE, key, cells: hucreler(sahneKaresi(v.ad, kareNo, v.ilerleme, v.bitti)), columns: SAHNE_W, rows: SAHNE_R });
+      if (r?.deny) canli.delete(key); // panel kapalı ya da yeniden çizildi: render yeniden ekler
+    }
+  });
+}
+
 function cark($) {
   if (ticker) return;
   ticker = $.clock.every(150, async () => {
@@ -376,6 +399,7 @@ async function kosuEkle($, id, tip, aciklama, model, tur) {
   const kosu = { id, tip, aciklama: tek(aciklama, 50), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}) };
   await $.state.set(KOSULAR, [...k, kosu].slice(-MAX_KOSU));
   cark($);
+  animasyon($);
 }
 
 // $.agent.spawn kendi agent.spawn hook'umuzdan geçmez: koşuyu burada elle kaydet.
@@ -391,6 +415,9 @@ export function register(on) {
     const r = await next(e);
     ticker?.cancel?.();
     ticker = null;
+    anim?.cancel?.();
+    anim = null;
+    canli.clear();
     await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef>]" });
     try {
       const b = await $.store.get("adimBellek");
@@ -403,6 +430,7 @@ export function register(on) {
   on("command.run", { command: "ekip" }, async ($, e) => {
     const args = String(e.args ?? "").trim();
     await $.ui.open({ id: PANE, title: "Ajan Ekibi", focus: true, closeOnEscape: true });
+    animasyon($);
     if (/^sor\s+/i.test(args)) { void sor($, args.replace(/^sor\s+/i, "")); return { text: "Soru danışmana gitti; cevap panelde." }; }
     if (/^kur\s+/i.test(args)) { void kur($, args.replace(/^kur\s+/i, "")); return { text: "Fable ekibi tasarlıyor; plan panelde onayını bekleyecek." }; }
     return { text: "Ajan ekibi paneli açıldı." };
@@ -456,7 +484,7 @@ export function register(on) {
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
-    const { Box, Text, Button, Input, Select, Markdown } = $.ui.resolve(e);
+    const { Box, Text, Button, Input, Select, Markdown, Raster } = $.ui.resolve(e);
     const { value: kosular = [] } = await $.state.get(KOSULAR);
     const { value: dan = null } = await $.state.get(DANISMAN);
     const { value: mod = null } = await $.state.get(MOD);
@@ -476,6 +504,7 @@ export function register(on) {
     // Geniş panelde her üye 2 satırlık bir şerit: üstte ad + gökyüzü, altta model + zemin.
     // Dar panelde (ya da mobilde) tek satırlık özet.
     const SW = SERIT_W + 2;
+    const raster = Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
     const uyeSatiri = (u, i) => {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };
@@ -505,6 +534,18 @@ export function register(on) {
         ? [[Text({ children: " ".repeat(SW) })], [Text({ dimColor: true, children: `${"┈".repeat(SERIT_W)}  `.slice(0, SW) })]]
         : [[Text({ color: "red", children: `✖ ${k.durum} · ${gecen}`.padEnd(SW) })], [Text({ color: "red", dimColor: true, children: tek(k.cikti, SW).padEnd(SW) })]];
       const alt2 = `  ${kisaModel(r.model)}${kosuyor ? ` · ${tema.ad}` : ""}`.slice(0, 21).padEnd(21); // ad sütunuyla aynı genişlik: üst ve alt pikseller üst üste oturur
+      if (raster && kosuyor && !fableMesgul) {
+        const key = `r-${u}`;
+        const bitti = k.durum !== "calisiyor";
+        const il = ilerleme(k, stat);
+        const once = canli.get(key);
+        canli.set(key, { ad: tema.ad, ilerleme: il, bitti, bitis: once?.bitti ? once.bitis : bitti ? Date.now() : 0 });
+        return Box({ key: `u-${u}`, flexDirection: "row", children: [
+          Box({ key: `ua-${u}`, flexDirection: "column", children: [ad, Text({ dimColor: true, children: alt2 }), Text({ children: " " })] }),
+          Raster({ key, columns: SAHNE_W, rows: SAHNE_R, cells: hucreler(sahneKaresi(tema.ad, kareNo, il, bitti)) }),
+          Box({ key: `us-${u}`, flexDirection: "column", children: [Box({ key: `us1-${u}`, flexDirection: "row", children: [...sag, ...buton] })] }),
+        ] });
+      }
       return Box({ key: `u-${u}`, flexDirection: "column", children: [
         Box({ key: `u1-${u}`, flexDirection: "row", children: [ad, ...ust, ...sag, ...buton] }),
         Box({ key: `u2-${u}`, flexDirection: "row", children: [Text({ dimColor: true, children: alt2 }), ...alt] }),

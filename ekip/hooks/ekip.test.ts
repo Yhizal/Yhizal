@@ -194,3 +194,26 @@ test('şeridin iki satırı aynı sütundan başlar (piksel hizası)', async ($,
   expect([...ad].length).toBe([...model].length)
   await ui.unmount()
 })
+
+test('terminalde çalışan üye Raster sahnesiyle çizilir ve saat blit ile canlandırır; masaüstünde yazılı şerit', async ($, on) => {
+  const saat = mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('agent.spawn', () => ({ model: 'opus', agentId: 'z1' }) as never)
+  const blitler: any[] = []
+  on('ui.blit', (_$: unknown, e: any) => (blitler.push(e), { value: {} }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:test-yazici' } as never)
+  const props = { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 120, placement: 'dock' } as never
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip', props })
+  expect(await ui.find({ type: 'Raster', key: 'r-test-yazici' } as never)).toBeDefined()
+  await saat.advance(400)
+  expect(blitler.length).toBeGreaterThan(0)
+  expect(blitler.at(-1).key).toBe('r-test-yazici')
+  await ui.unmount()
+  const ui2 = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip', props })
+  expect(await ui2.find({ type: 'Raster' } as never)).toBeUndefined()
+  await ui2.unmount()
+})
