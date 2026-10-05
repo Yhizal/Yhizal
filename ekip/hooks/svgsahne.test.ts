@@ -10,8 +10,13 @@ test('her tema: geçerli, sınır içinde, betiksiz SVG; ilerleme yuvarlanır, g
     expect(/<script|on[a-z]+=/i.test(s)).toBe(false)
     expect((s.match(/<g/g) ?? []).length).toBe((s.match(/<\/g>/g) ?? []).length)
   }
-  expect(svgSerit('Clawd', 0.331, false)).toBe(svgSerit('Clawd', 0.334, false))  // yüzde adımı içinde aynı kaynak
+  expect(svgSerit('Clawd', 0.32, false)).toBe(svgSerit('Clawd', 0.335, false))    // %4 adımı içinde aynı kaynak: animasyon sıfırlanmaz
   expect(svgSerit('Clawd', 0.33, false)).not.toBe(svgSerit('Clawd', 0.5, false))
+  expect(svgSerit('Clawd', 0.5, false, 's', 0.3)).toContain('fill="freeze"')       // önceki konumdan kayar
+  expect(svgSerit('Clawd', 0.5, false, 's', 0.5)).not.toContain('fill="freeze"')
+  const k = svgSerit('Clawd', 1, true)                                               // konfeti kendi merkezinde döner
+  expect(k).toContain('type="rotate" from="0" to="360"')
+  expect(/rotate" from="0 \d/.test(k)).toBe(false)
   expect(svgSerit('yarış', 1, true)).not.toContain('repeatCount="indefinite"/></line>')  // bitince yol durur
   expect(svgDusunuyor().length).toBeLessThan(131072)
 })

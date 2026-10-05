@@ -1,5 +1,5 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
-import { svgSerit, svgDusunuyor } from "./svgsahne.mjs";
+import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -73,6 +73,7 @@ export const SABLON_EKIPLER = [
 let aktifUyeler = new Set();
 // Raster animasyonu: render'ın çizdiği canlı şeritler; saat bunları blit ile yeniden boyar.
 const canli = new Map(); // key → { ad, ilerleme, bitti, bitis }
+const svgIz = new Map(); // üye → { p, once }: SVG aracı önceki konumdan yenisine kaysın
 let kareNo = 0;
 let anim = null;
 const ANIM_MS = 83; // ~12 kare/sn
@@ -536,7 +537,14 @@ export function register(on) {
       if (svg && (kosuyor || fableMesgul)) {
         const bilgi = Box({ key: `ui-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: `${kisaModel(r.model)}${kosuyor && !fableMesgul ? ` · ${tema.ad}` : ""}  ` }),
           ...(fableMesgul ? [Text({ color: "magenta", children: "düşünüyor…" })] : sag), ...buton] });
-        const kaynak = fableMesgul ? svgDusunuyor() : svgSerit(tema.ad, ilerleme(k, stat), k.durum !== "calisiyor", `s-${u}`);
+        let kaynak = svgDusunuyor();
+        if (!fableMesgul) {
+          const pYeni = yuvarla(ilerleme(k, stat));
+          const iz = svgIz.get(u);
+          const once = !iz || iz.kosu !== k.id ? undefined : iz.p !== pYeni ? iz.p : iz.once;
+          svgIz.set(u, { kosu: k.id, p: pYeni, once });
+          kaynak = svgSerit(tema.ad, ilerleme(k, stat), k.durum !== "calisiyor", `s-${u}`, once);
+        }
         return Box({ key: `u-${u}`, flexDirection: "column", children: [bilgi,
           Svg({ key: `s-${u}`, source: kaynak, alt: fableMesgul ? "Fable düşünüyor" : `${u}: ${yuzde.trim()} ${tema.ad}`, isInteractive: true })] });
       }
