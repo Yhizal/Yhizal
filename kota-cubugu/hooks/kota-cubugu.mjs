@@ -121,7 +121,7 @@ export function tempoText(p) {
 
 const TON_ISI = { green: "yesil", yellow: "sari", red: "kirmizi" };
 const CIP = { five_hour: "5s", seven_day: "7g" };
-const ETIKET = { five_hour: "5 SAAT", seven_day: "HAFTALIK" };
+const ETIKET = { five_hour: "5 saat", seven_day: "Haftalık" };
 
 // Cam kartın satırları: dönem sonu tahmini (bugünkü hızla) çubukta çizgili gölge olarak görünür.
 // Değerler yuvarlanır ki SVG metni yalnız görünen bir şey değişince değişsin.

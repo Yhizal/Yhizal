@@ -104,7 +104,8 @@ export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
       tur: KAT_AD[t.kat ?? "diger"],
       kalan: k.asim ? `tahminden uzun +${kaba(k.ms)}` : `~${kaba(k.ms)} kaldı${k.etiket}`,
       kalanTon: k.asim ? "kirmizi" : k.etiket ? "mor" : "sari",
-      detay: `${t.adim ?? 0} adım  ·  ${kaynak}  ·  ort ${fmt(tah.sure.ort)} ± ${fmt(tah.sure.ss)}`,
+      detay: `${KAT_AD[t.kat ?? "diger"]} · ${t.adim ?? 0} adım · ort ${fmt(tah.sure.ort)}±${fmt(tah.sure.ss)}`,
+      ipucu: `Tahmin kaynağı: ${kaynak}`,
     };
   }
   const alt = (is ? `İş tahmini %${is.yuzde}, ${is.kalan}. ` : "") + `diff-only ${durum.acik ? "açık" : "kapalı"}, ${durum.prompt} prompt'a eklendi, ${durum.edit} edit`;
