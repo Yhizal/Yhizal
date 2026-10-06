@@ -42,28 +42,92 @@ export function istatistik(ornekler, alan) {
   const ss = n > 1 ? Math.sqrt(x.reduce((a, b) => a + (b - ort) ** 2, 0) / (n - 1)) : 0;
   return { n, ort, ss };
 }
+// ── Kendini düzelten tahmin ──
+// 1) Süreler sağa çarpık (aynı türde 30 sn de olur 1 saat de): log-normal model, ağırlıklı log ortalama/sapma.
+// 2) Yeni işler daha ağır basar (yarı ömür 10 iş): alışkanlık değişince tahmin peşinden gelir.
+// 3) Her iş başında yapılan tahmin örneğe yazılır (t); biten işlerin gerçek/tahmin oranından türün
+//    sistematik sapması öğrenilir ve sonraki tahminlere düzeltme olarak eklenir (az örnekte sıfıra çekilir).
+// 4) İş sürerken: geçen süre ve atılan adım bilinince koşullu medyan; adım hızı kalan süreyi canlı düzeltir.
+const YARI_OMUR = 10;
+const VARSAYILAN = { mu: Math.log(DEFAULT_ETA), sg: 0.8 };
+const agirliklar = n => Array.from({ length: n }, (_, i) => 0.5 ** ((n - 1 - i) / YARI_OMUR));
+export function logIstatistik(ornekler, alan) {
+  const x = ornekler.map(o => o?.[alan]).filter(v => Number.isFinite(v) && v > 0);
+  const n = x.length;
+  if (!n) return null;
+  const w = agirliklar(n), W = w.reduce((a, b) => a + b, 0);
+  const mu = x.reduce((a, v, i) => a + w[i] * Math.log(v), 0) / W;
+  const varyans = x.reduce((a, v, i) => a + w[i] * (Math.log(v) - mu) ** 2, 0) / W * (n > 1 ? n / (n - 1) : 1);
+  return { n, mu, sg: n > 1 ? Math.max(0.25, Math.sqrt(varyans)) : 0.7 };
+}
+// Türün sistematik sapması: ln(gerçek/tahmin) ağırlıklı ortalaması, n/(n+3) ile küçültülür.
+export function duzeltme(ornekler) {
+  const r = (ornekler ?? []).filter(o => o?.t > 0 && o.d > 0).map(o => Math.log(o.d / o.t));
+  if (r.length < 2) return 0;
+  const w = agirliklar(r.length), W = w.reduce((a, b) => a + b, 0);
+  return r.reduce((a, v, i) => a + w[i] * v, 0) / W * r.length / (r.length + 3);
+}
+// Son 20 işte tahminin tuttuğu oran: medyan |gerçek - tahmin| / gerçek.
+export function sapma(ornekler) {
+  const e = (ornekler ?? []).filter(o => o?.c > 0 && o.d > 0).slice(-20).map(o => Math.abs(o.d - o.c) / o.d).sort((a, b) => a - b);
+  return e.length ? e[Math.floor(e.length / 2)] : null;
+}
 export function tahmin(bellek, kat) {
   const kendi = bellek?.[kat] ?? [];
-  const hepsi = Object.values(bellek ?? {}).flat();
+  const hepsi = Object.values(bellek ?? {}).flat().sort((a, b) => (a.z ?? 0) - (b.z ?? 0));
   const [ornek, kaynak] = kendi.length >= MIN_ORNEK ? [kendi, kat] : hepsi.length >= MIN_ORNEK ? [hepsi, "genel"] : [null, "varsayılan"];
-  if (!ornek) return { kaynak, sure: { n: 0, ort: DEFAULT_ETA, ss: DEFAULT_ETA / 2 }, adim: { n: 0, ort: 0, ss: 0 } };
-  return { kaynak, sure: istatistik(ornek, "d"), adim: istatistik(ornek, "s") };
+  const ls = ornek ? logIstatistik(ornek, "d") : null;
+  const taban = ls ? { mu: ls.mu, sg: ls.sg } : VARSAYILAN;
+  const dz = ornek ? duzeltme(ornek) : 0;
+  const mu = taban.mu + dz, sg = taban.sg;
+  const adimLs = ornek ? logIstatistik(ornek, "s") : null;
+  // ort/ss gösterim için: medyan ve log sapmanın ms karşılığı.
+  return {
+    kaynak, mu, sg, duzeltme: dz, taban: Math.exp(taban.mu), sapma: ornek ? sapma(ornek) : null,
+    sure: { n: ls?.n ?? 0, ort: Math.exp(mu), ss: Math.exp(mu) * (Math.exp(sg) - 1) },
+    adim: adimLs ? { n: adimLs.n, mu: adimLs.mu, sg: adimLs.sg, ort: Math.exp(adimLs.mu) } : { n: 0, ort: 0 },
+  };
 }
-// Ortalamaya kadar %0-85; aşınca standart sapma ölçeğinde %97'ye yaklaşır: hiç geri gitmez, takılmaz.
-function egri(x, ort, ss) {
-  if (ort <= 0) return 0;
-  return x <= ort ? 0.85 * x / ort : 0.85 + 0.12 * (1 - Math.exp(-(x - ort) / Math.max(ss, ort * 0.15)));
+// Standart normal: dağılım (Abramowitz-Stegun 7.1.26) ve tersi (Acklam).
+function phi(z) {
+  const t = 1 / (1 + 0.3275911 * Math.abs(z) / Math.SQRT2);
+  const y = 1 - (((((1.061405429 * t - 1.453152027) * t) + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-z * z / 2);
+  return z >= 0 ? (1 + y) / 2 : (1 - y) / 2;
 }
+function phiTers(p) {
+  const a = [-39.6968302866538, 220.946098424521, -275.928510446969, 138.357751867269, -30.6647980661472, 2.50662827745924];
+  const b = [-54.4760987982241, 161.585836858041, -155.698979859887, 66.8013118877197, -13.2806815528857];
+  const c = [-0.00778489400243029, -0.322396458041136, -2.40075827716184, -2.54973253934373, 4.37466414146497, 2.93816398269878];
+  const d = [0.00778469570904146, 0.32246712907004, 2.445134137143, 3.75440866190742];
+  const q = Math.min(1 - 1e-9, Math.max(1e-9, p));
+  if (q < 0.02425) { const r = Math.sqrt(-2 * Math.log(q)); return (((((c[0] * r + c[1]) * r + c[2]) * r + c[3]) * r + c[4]) * r + c[5]) / ((((d[0] * r + d[1]) * r + d[2]) * r + d[3]) * r + 1); }
+  if (q > 1 - 0.02425) return -phiTers(1 - q);
+  const r = q - 0.5, s = r * r;
+  return (((((a[0] * s + a[1]) * s + a[2]) * s + a[3]) * s + a[4]) * s + a[5]) * r / (((((b[0] * s + b[1]) * s + b[2]) * s + b[3]) * s + b[4]) * s + 1);
+}
+// Log-normal X, X > x bilindiğinde koşullu medyan: kalan olasılığın ortasındaki değer. q: x'in yüzdeliği.
+export function kosullu(x, mu, sg) {
+  const q = x > 0 ? phi((Math.log(x) - mu) / sg) : 0;
+  return { q, deger: Math.max(x, Math.exp(mu + sg * phiTers(q + (1 - q) / 2))) };
+}
+// İlerleme: geçen / beklenen toplam (koşullu); adım verisi varsa adım oranı da katılır. %97'de durur.
 export function ilerleme(el, adim, tah) {
-  const zaman = egri(el, tah.sure.ort, tah.sure.ss);
-  const frac = tah.adim.n >= MIN_ORNEK && tah.adim.ort > 0 ? 0.6 * zaman + 0.4 * egri(adim, tah.adim.ort, tah.adim.ss) : zaman;
+  const zaman = el > 0 ? el / kosullu(el, tah.mu, tah.sg).deger : 0;
+  const adimli = tah.adim.n >= MIN_ORNEK && adim > 0;
+  const frac = adimli ? 0.6 * zaman + 0.4 * (adim / kosullu(adim, tah.adim.mu, tah.adim.sg).deger) : zaman;
   return Math.min(0.97, frac);
 }
-// Kalan süre: ortalama, sonra ort+1σ, ort+2σ hedefleri.
-export function kalan(el, tah) {
-  const { ort, ss } = tah.sure;
-  for (const [k, etiket] of [[0, ""], [1, " (1σ)"], [2, " (2σ)"]]) if (el < ort + k * ss) return { ms: ort + k * ss - el, etiket, asim: false };
-  return { ms: el - ort, etiket: "", asim: true };
+// Kalan süre: koşullu medyan; 3+ adımda adım hızıyla (geçen/adım × kalan adım) harmanlanır.
+// Etiket: süre türün 1σ / 2σ ötesine geçtiyse; 3σ ötesi "tahminden uzun".
+export function kalan(el, tah, adim = 0) {
+  const { q, deger } = kosullu(el, tah.mu, tah.sg);
+  let ms = deger - el;
+  if (adim >= 3 && tah.adim.n >= MIN_ORNEK) {
+    const kalanAdim = kosullu(adim, tah.adim.mu, tah.adim.sg).deger - adim;
+    ms = 0.6 * ms + 0.4 * kalanAdim * (el / adim);
+  }
+  if (q > 0.99865) return { ms: el - tah.sure.ort, etiket: "", asim: true };
+  return { ms, etiket: q > 0.97725 ? " (2σ)" : q > 0.84134 ? " (1σ)" : "", asim: false };
 }
 export function belleğeEkle(bellek, kat, ornek) {
   return { ...bellek, [kat]: [...(bellek?.[kat] ?? []), ornek].slice(-ORNEK_MAX) };
@@ -95,7 +159,7 @@ export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
     const tah = tahmin(bellek, t.kat ?? "diger");
     const el = now - t.startedAt;
     const frac = ilerleme(el, t.adim ?? 0, tah);
-    const k = kalan(el, tah);
+    const k = kalan(el, tah, t.adim ?? 0);
     const ton = k.asim ? "kirmizi" : k.etiket ? "mor" : "mavi";
     const kaynak = tah.kaynak === "varsayılan" ? "varsayılan" : `${tah.kaynak === "genel" ? "genel" : KAT_AD[tah.kaynak]} n=${tah.sure.n}`;
     const yuzde = Math.floor(frac * 50) * 2;
@@ -104,8 +168,8 @@ export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
       tur: KAT_AD[t.kat ?? "diger"],
       kalan: k.asim ? `tahminden uzun +${kaba(k.ms)}` : `~${kaba(k.ms)} kaldı${k.etiket}`,
       kalanTon: k.asim ? "kirmizi" : k.etiket ? "mor" : "sari",
-      detay: `${KAT_AD[t.kat ?? "diger"]} · ${t.adim ?? 0} adım · ort ${fmt(tah.sure.ort)}±${fmt(tah.sure.ss)}`,
-      ipucu: `Tahmin kaynağı: ${kaynak}`,
+      detay: `${KAT_AD[t.kat ?? "diger"]} · ${t.adim ?? 0} adım · tipik ${kaba(tah.sure.ort)}`,
+      ipucu: `Tahmin kaynağı: ${kaynak}${tah.duzeltme ? ` · öğrenilen düzeltme ×${Math.exp(tah.duzeltme).toFixed(2)}` : ""}${tah.sapma != null ? ` · son işlerde sapma %${Math.round(tah.sapma * 100)}` : ""}`,
     };
   }
   const alt = (is ? `İş tahmini %${is.yuzde}, ${is.kalan}. ` : "") + `diff-only ${durum.acik ? "açık" : "kapalı"}, ${durum.prompt} prompt'a eklendi, ${durum.edit} edit`;
@@ -146,10 +210,13 @@ export function register(on) {
   on("command.run", { command: "tahmin" }, async ($) => {
     const { value: b = {} } = await $.state.get(BELLEK);
     const satir = Object.keys(KAT_AD).filter(k => b[k]?.length).map(k => {
-      const d = istatistik(b[k], "d"), a = istatistik(b[k], "s");
-      return `${KAT_AD[k].padEnd(14)} n=${String(d.n).padStart(2)}  süre ${fmt(d.ort)} ± ${fmt(d.ss)}  adım ${a.ort.toFixed(1)} ± ${a.ss.toFixed(1)}`;
+      const t = tahmin(b, k);
+      const aralik = `${fmt(Math.exp(t.mu - t.sg))}–${fmt(Math.exp(t.mu + t.sg))}`;
+      const dz = t.duzeltme ? `  düzeltme ×${Math.exp(t.duzeltme).toFixed(2)}` : "";
+      const sp = t.sapma != null ? `  sapma %${Math.round(t.sapma * 100)}` : "";
+      return `${KAT_AD[k].padEnd(14)} n=${String(b[k].length).padStart(2)}  tipik ${fmt(t.sure.ort)} (${aralik})  adım ~${Math.round(t.adim.ort)}${dz}${sp}  [${t.kaynak}]`;
     });
-    return { text: satir.length ? `İş belleği (ortalama ± standart sapma):\n${satir.join("\n")}` : `Henüz kayıtlı iş yok; ${MIN_ORNEK} işten sonra tahminler ölçüme dayanır.` };
+    return { text: satir.length ? `İş belleği (log-normal, yeni işler ağır basar; düzeltme = öğrenilen sistematik sapma, sapma = son 20 işte tahminin medyan hatası):\n${satir.join("\n")}` : `Henüz kayıtlı iş yok; ${MIN_ORNEK} işten sonra tahminler ölçüme dayanır.` };
   });
 
   on("command.run", { command: "diffmod" }, async ($) => {
@@ -189,7 +256,10 @@ export function register(on) {
   on("turn.start", async ($, e, next) => {
     if (!e.agentId) {
       const { value: kat = "diger" } = await $.state.get(KAT);
-      await $.state.set(TURN, { startedAt: Date.now(), kat, adim: 0 });
+      // İş başındaki tahmin örneğe yazılır: t düzeltmesiz taban (sapma öğrenimi), c gösterilen tahmin (isabet ölçümü).
+      const { value: b = {} } = await $.state.get(BELLEK);
+      const tah = tahmin(b, kat);
+      await $.state.set(TURN, { startedAt: Date.now(), kat, adim: 0, t: Math.round(tah.taban), c: Math.round(tah.sure.ort) });
       await $.state.set(KAT, "diger");
     }
     return next(e);
@@ -210,8 +280,10 @@ export function register(on) {
     const { value: t = null } = await $.state.get(TURN);
     const dur = e.durationMs ?? (t ? Date.now() - t.startedAt : 0);
     if (dur > 1000 && t && !e.isAborted) {
-      const { value: b = {} } = await $.state.get(BELLEK);
-      const yeni = belleğeEkle(b, t.kat ?? "diger", { d: dur, s: t.adim ?? 0, z: Date.now() });
+      // Diskteki bellek tazeden okunur: aynı anda açık diğer oturumların öğrendikleri ezilmesin.
+      let b = {};
+      try { b = (await $.store.get("bellek")) ?? (await $.state.get(BELLEK)).value ?? {}; } catch { b = (await $.state.get(BELLEK)).value ?? {}; }
+      const yeni = belleğeEkle(b, t.kat ?? "diger", { d: dur, s: t.adim ?? 0, z: Date.now(), ...(t.t ? { t: t.t, c: t.c } : {}) });
       await $.state.set(BELLEK, yeni);
       await $.store.set("bellek", yeni);
     }
@@ -248,7 +320,7 @@ export function register(on) {
       const tah = tahmin(bellek, t.kat ?? "diger");
       const el = Date.now() - t.startedAt;
       const frac = ilerleme(el, t.adim ?? 0, tah);
-      const k = kalan(el, tah);
+      const k = kalan(el, tah, t.adim ?? 0);
       const wide = (e.props.bodyColumns ?? 80) >= 70;
       const kaynak = tah.kaynak === "varsayılan" ? "varsayılan" : `${tah.kaynak === "genel" ? "genel" : KAT_AD[tah.kaynak]} n=${tah.sure.n}`;
       const progress = Box({

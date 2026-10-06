@@ -1,5 +1,6 @@
-export type DiffDisiplinTurn = { startedAt: number; kat?: string; adim?: number } | null;
-export type DiffDisiplinOrnek = { d: number; s: number; z: number };
+// t: iş başındaki düzeltmesiz tahmin (ms), c: gösterilen tahmin (ms); kendini düzeltme bunlardan öğrenir.
+export type DiffDisiplinTurn = { startedAt: number; kat?: string; adim?: number; t?: number; c?: number } | null;
+export type DiffDisiplinOrnek = { d: number; s: number; z: number; t?: number; c?: number };
 
 declare module "claude-code" {
   interface PluginState {

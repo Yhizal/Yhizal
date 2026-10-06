@@ -60,12 +60,39 @@ test('tahmin: kategori ≥3 örnek → kendi, yoksa genel, yoksa varsayılan', (
   for (const d of [100_000, 140_000]) b = belleğeEkle(b, 'hata', { d, s: 12, z: 0 })
   const t = tahmin(b, 'hata')
   expect(t.kaynak).toBe('hata')
-  expect(t.sure.ort).toBe(120_000)
-  expect(t.sure.ss).toBe(20_000)
+  // log-normal medyan: geometrik ortalamaya yakın (~118 sn), aritmetik 120 sn değil
+  expect(Math.abs(t.sure.ort - 118_000)).toBeLessThan(3_000)
 })
 
+test('tahmin: yeni işler ağır basar, tek uç değer tahmini uçurmaz', () => {
+  let b: any = {}
+  for (let i = 0; i < 20; i++) b = belleğeEkle(b, 'ozellik', { d: 30_000, s: 3, z: i })
+  b = belleğeEkle(b, 'ozellik', { d: 3_600_000, s: 80, z: 21 })     // bir saatlik tek iş
+  const t = tahmin(b, 'ozellik')
+  expect(t.sure.ort).toBeLessThan(90_000)                              // aritmetik ortalama ~200 sn olurdu
+  for (let i = 0; i < 15; i++) b = belleğeEkle(b, 'ozellik', { d: 120_000, s: 10, z: 30 + i })
+  expect(tahmin(b, 'ozellik').sure.ort).toBeGreaterThan(90_000)       // alışkanlık değişti, tahmin peşinden geldi
+})
+
+test('kendini düzeltme: tahmin sürekli kısa kalırsa öğrenilen düzeltme tahmini büyütür, sapma ölçülür', () => {
+  let b: any = {}
+  for (let i = 0; i < 10; i++) b = belleğeEkle(b, 'test', { d: 60_000, s: 5, z: i, t: 30_000, c: 30_000 })
+  const t = tahmin(b, 'test')
+  expect(t.duzeltme).toBeGreaterThan(0.4)                              // ln 2 ≈ 0.69, n/(n+3) ile küçültülmüş
+  expect(t.sure.ort).toBeGreaterThan(t.taban)
+  expect(t.sapma).toBe(0.5)                                            // her işte %50 kısa
+  let d: any = {}
+  for (let i = 0; i < 10; i++) d = belleğeEkle(d, 'test', { d: 60_000, s: 5, z: i, t: 60_000, c: 60_000 })
+  expect(Math.abs(tahmin(d, 'test').duzeltme)).toBeLessThan(1e-9)     // tutan tahmin düzeltilmez
+})
+
+const TAH = (ort: number, sg: number, adimOrt = 0) => ({
+  mu: Math.log(ort), sg, sure: { n: 5, ort, ss: 0 },
+  adim: adimOrt ? { n: 5, mu: Math.log(adimOrt), sg: 0.3, ort: adimOrt } : { n: 0, ort: 0 },
+}) as any
+
 test('ilerleme hiç geri gitmez, %97 sınırı, adım bilgisi hızlandırır', () => {
-  const tah: any = { sure: { n: 5, ort: 60_000, ss: 20_000 }, adim: { n: 5, ort: 10, ss: 3 } }
+  const tah = TAH(60_000, 0.35, 10)
   let once = 0
   for (let el = 0; el <= 300_000; el += 5000) {
     const f = ilerleme(el, Math.floor(el / 6000), tah)
@@ -76,12 +103,21 @@ test('ilerleme hiç geri gitmez, %97 sınırı, adım bilgisi hızlandırır', (
   expect(ilerleme(30_000, 9, tah)).toBeGreaterThan(ilerleme(30_000, 2, tah))
 })
 
-test('kalan süre: ortalama → 1σ → 2σ → aşım', () => {
-  const tah: any = { sure: { n: 5, ort: 60_000, ss: 20_000 }, adim: { n: 0, ort: 0, ss: 0 } }
-  expect(kalan(50_000, tah)).toEqual({ ms: 10_000, etiket: '', asim: false })
-  expect(kalan(70_000, tah)).toEqual({ ms: 10_000, etiket: ' (1σ)', asim: false })
-  expect(kalan(90_000, tah)).toEqual({ ms: 10_000, etiket: ' (2σ)', asim: false })
-  expect(kalan(110_000, tah).asim).toBe(true)
+test('kalan süre: başta medyan; süre uzadıkça koşullu medyan, 1σ → 2σ → aşım', () => {
+  const tah = TAH(60_000, 0.35)
+  expect(Math.abs(kalan(0, tah).ms - 60_000)).toBeLessThan(500)
+  const k1 = kalan(50_000, tah)
+  expect(k1.etiket).toBe('')
+  expect(k1.ms).toBeGreaterThan(10_000)                                 // medyana 10 sn kaldı ama koşullu kalan daha uzun
+  expect(kalan(60_000 * Math.exp(0.35 * 1.2), tah).etiket).toBe(' (1σ)')
+  expect(kalan(60_000 * Math.exp(0.35 * 2.2), tah).etiket).toBe(' (2σ)')
+  expect(kalan(60_000 * Math.exp(0.35 * 3.2), tah).asim).toBe(true)
+  for (const el of [10_000, 40_000, 80_000, 120_000]) expect(kalan(el, tah).ms).toBeGreaterThan(0)
+})
+
+test('kalan süre: adım hızı canlı düzeltir (hızlı ilerleyen iş daha az kalır)', () => {
+  const tah = TAH(60_000, 0.35, 10)
+  expect(kalan(20_000, tah, 8).ms).toBeLessThan(kalan(20_000, tah, 3).ms)
 })
 
 test('bellek kategori başına son 40 işi tutar', () => {
