@@ -65,7 +65,8 @@ export function onbellekVerisi(c, now) {
   return {
     sicak: true, ton: cd.uyari ? "sari" : "yesil", ttl: cd.ttl,
     oran: Math.round(saniye * 1000 / c.ttlMs * 300) / 300, saniye,
-    kalan: `${sureKisa(saniye * 1000)} kaldı`, kisa: ozet, ozet: `Önbellek ${cd.ttl} · ${ozet}`,
+    // kisa kartın sağ ucuna sığmalı; ıskalama nedeni yalnız ipucunda (title) ve alt metinde.
+    kalan: `${sureKisa(saniye * 1000)} kaldı`, kisa: `isabet %${cd.isabet} · ıskalama ${cd.iska}`, ozet: `Önbellek ${cd.ttl} · ${ozet}`,
   };
 }
 
