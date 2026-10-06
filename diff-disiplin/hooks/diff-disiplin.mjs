@@ -86,7 +86,9 @@ export function barParts(frac, frame, Text) {
   return parts;
 }
 
-// Cam kart (uygulama yüzeyleri): iş sürerken kalan süre her saniye değişir, kart resim olarak çizilir.
+// Cam kart (uygulama yüzeyleri), resim olarak çizilir: her yeni metin resmi yeniden çizdirir, o yüzden
+// ilerleme %2'lik, kalan süre dakika ya da 5 saniyelik adımlarla yazılır.
+const kaba = ms => ms >= 60_000 ? `${Math.ceil(ms / 60_000)}dk` : `${Math.max(5, Math.ceil(ms / 5_000) * 5)}s`;
 export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
   let is = null;
   if (t) {
@@ -96,16 +98,17 @@ export function isKartiVerisi(t, bellek, durum, now = Date.now()) {
     const k = kalan(el, tah);
     const ton = k.asim ? "kirmizi" : k.etiket ? "mor" : "mavi";
     const kaynak = tah.kaynak === "varsayılan" ? "varsayılan" : `${tah.kaynak === "genel" ? "genel" : KAT_AD[tah.kaynak]} n=${tah.sure.n}`;
+    const yuzde = Math.floor(frac * 50) * 2;
     is = {
-      oran: Math.round(frac * 300) / 300, yuzde: Math.round(frac * 100), ton,
+      oran: yuzde / 100, yuzde, ton,
       tur: KAT_AD[t.kat ?? "diger"],
-      kalan: k.asim ? `tahminden uzun +${fmt(k.ms)}` : `~${fmt(k.ms)} kaldı${k.etiket}`,
+      kalan: k.asim ? `tahminden uzun +${kaba(k.ms)}` : `~${kaba(k.ms)} kaldı${k.etiket}`,
       kalanTon: k.asim ? "kirmizi" : k.etiket ? "mor" : "sari",
       detay: `${t.adim ?? 0} adım  ·  ${kaynak}  ·  ort ${fmt(tah.sure.ort)} ± ${fmt(tah.sure.ss)}`,
     };
   }
   const alt = (is ? `İş tahmini %${is.yuzde}, ${is.kalan}. ` : "") + `diff-only ${durum.acik ? "açık" : "kapalı"}, ${durum.prompt} prompt'a eklendi, ${durum.edit} edit`;
-  return { source: isKarti(is, durum), alt, isInteractive: !is };
+  return { source: isKarti(is, durum), alt };
 }
 
 const REVISION =/\b(düzelt|değiştir|güncelle|revize|ekle|kaldır|refactor|fix|update|change|modify|patch|edit)\w*/i;

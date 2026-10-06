@@ -54,13 +54,14 @@ export function cacheDurum(c, now) {
   if (kalan <= 0) return { sicak: false, ctx: c.ctx, neden: c.neden, isabet, iska: c.iska };
   return { sicak: true, kalan, oran: kalan / c.ttlMs, ttl: c.ttlMs >= TTL.abonelik ? "1sa" : "5dk", isabet, iska: c.iska, uyari: kalan / c.ttlMs < 0.2 };
 }
-// Cam kartın önbellek satırı; kalan süre dakikalık yazılır, çubuk arada SMIL ile erir.
+// Cam kartın önbellek satırı; resim her değişimde yeniden çizildiği için kalan süre
+// dakikalık, son 2 dakikada 10 saniyelik adımlarla yazılır.
 export function onbellekVerisi(c, now) {
   const cd = cacheDurum(c, now);
   if (!cd) return null;
   const ozet = `isabet %${cd.isabet} · ıskalama ${cd.iska}${cd.iska && c.neden ? ` (${c.neden})` : ""}`;
   if (!cd.sicak) return { sicak: false, yazi: `sonraki mesaj ${bin(cd.ctx)} token yeniden yazar`, ozet };
-  const saniye = cd.kalan >= 120_000 ? Math.ceil(cd.kalan / 60_000) * 60 : Math.ceil(cd.kalan / 1000);
+  const saniye = cd.kalan >= 120_000 ? Math.ceil(cd.kalan / 60_000) * 60 : Math.ceil(cd.kalan / 10_000) * 10;
   return {
     sicak: true, ton: cd.uyari ? "sari" : "yesil", ttl: cd.ttl,
     oran: Math.round(saniye * 1000 / c.ttlMs * 300) / 300, saniye,
@@ -234,7 +235,7 @@ export function register(on) {
     if (Svg && e.surface !== "terminal" && (limits.length || ob)) {
       const satirlar = kotaSatirlari(limits, now);
       const alt = [...satirlar.map(r => r.ipucu), ...(ob ? [ob.sicak ? `${ob.ozet}, ${ob.kalan}` : `Önbellek soğuk, ${ob.yazi}`] : [])].join(" — ");
-      const kart = Svg({ key: "kota-cam", source: kotaKarti(satirlar, ob), alt, isInteractive: true });
+      const kart = Svg({ key: "kota-cam", source: kotaKarti(satirlar, ob), alt });
       return below ? Box({ flexDirection: "column", children: [below, kart] }) : kart;
     }
     const wide = (e.props.bodyColumns ?? 80) >= 70;
