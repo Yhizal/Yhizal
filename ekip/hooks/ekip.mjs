@@ -80,6 +80,7 @@ const ANIM_MS = 83; // ~12 kare/sn
 const KONFETI_MS = 2500;
 let ticker = null;
 let seyrek = 0;
+let svgYuzey = false; // son çizim uygulama yüzeyinde (SVG sahne) mi — çark seyrekleşir
 
 export function sure(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -306,7 +307,9 @@ function cark($) {
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor";
     if (!hareket) { ticker?.cancel?.(); ticker = null; return; }
     // Raster şeritleri blit ile canlı; tam yeniden çizimi yalnız yazı spinner'ları için seyrek yap (~1.6 Hz).
-    if (canli.size && ++seyrek % 4) return;
+    // Uygulama yüzeyinde (SVG) sahneyi uygulama oynatır; panel yalnız süre/yüzde yazıları için
+    // saniyede bir çizilir — 150 ms'lik tam çizim paneli titretiyordu (7 Eki 2026).
+    if ((canli.size || svgYuzey) && ++seyrek % (svgYuzey ? 7 : 4)) return;
     const { value: f = 0 } = await $.state.get(FRAME);
     await $.state.set(FRAME, f + 1);
   });
@@ -519,6 +522,7 @@ export function register(on) {
     const SW = SERIT_W + 2;
     const raster = Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
     const svg = Boolean(Svg) && !raster; // Claude Code uygulaması (masaüstü, web, VS Code, mobil): animasyonu uygulama oynatır
+    svgYuzey = svg;
     const uyeSatiri = (u, i) => {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };

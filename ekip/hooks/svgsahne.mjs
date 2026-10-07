@@ -20,7 +20,10 @@ function spriteKare(kare, palet) {
   }));
   return r;
 }
-function sprite(s, bitti, dur = "0.33s") {
+// SAKİN HAREKET (7 Eki 2026, kullanıcı: "kıpraşıyor, rahatsız edici"): 0.12–0.33 sn'lik
+// döngüler göze titreme gibi geliyordu. Hiçbir döngü 0.5 sn'den hızlı değil; bitişteki
+// konfeti bir kez düşer ve durur (eskiden sonsuz dönüyordu).
+function sprite(s, bitti, dur = "0.6s") {
   if (bitti) return `<g>${spriteKare(s.kare[0], s.palet)}</g>`;
   return s.kare.map((k, i) => `<g opacity="${i ? 0 : 1}"><animate attributeName="opacity" values="${i ? "0;1" : "1;0"}" dur="${dur}" calcMode="discrete" repeatCount="indefinite"/>${spriteKare(k, s.palet)}</g>`).join("");
 }
@@ -45,18 +48,18 @@ const TEMA = {
   },
   yarış: {
     zemin: d => `<rect width="${VB_W}" height="${VB_H}" fill="#2E7D32"/>
-      ${kayan(Array.from({ length: 24 }, (_, i) => `<rect x="${i * 10}" y="${ZEMIN - 13}" width="5" height="2" fill="${i % 2 ? "#B71C1C" : "#EEEEEE"}"/>`).join(""), 3, d)}
+      ${kayan(Array.from({ length: 24 }, (_, i) => `<rect x="${i * 10}" y="${ZEMIN - 13}" width="5" height="2" fill="${i % 2 ? "#B71C1C" : "#EEEEEE"}"/>`).join(""), 6, d)}
       <rect y="${ZEMIN - 11}" width="${VB_W}" height="${VB_H}" fill="#3A3D42"/>
-      <line x1="0" y1="${ZEMIN - 5}" x2="${VB_W}" y2="${ZEMIN - 5}" stroke="#F2F2F2" stroke-width="1" stroke-dasharray="8 8">${d ? "" : `<animate attributeName="stroke-dashoffset" from="0" to="16" dur="0.2s" repeatCount="indefinite"/>`}</line>`,
+      <line x1="0" y1="${ZEMIN - 5}" x2="${VB_W}" y2="${ZEMIN - 5}" stroke="#F2F2F2" stroke-width="1" stroke-dasharray="8 8">${d ? "" : `<animate attributeName="stroke-dashoffset" from="0" to="16" dur="0.8s" repeatCount="indefinite"/>`}</line>`,
     iz: (sx, sh) => [0, 1, 2].map(i => `<circle cx="${sx - 3}" cy="${ZEMIN - 1}" r="1.5" fill="#C9CDD2"><animate attributeName="cx" from="${sx - 2}" to="${sx - 22}" dur="0.9s" begin="${i * 0.3}s" repeatCount="indefinite"/><animate attributeName="opacity" from="0.8" to="0" dur="0.9s" begin="${i * 0.3}s" repeatCount="indefinite"/><animate attributeName="r" from="1" to="3" dur="0.9s" begin="${i * 0.3}s" repeatCount="indefinite"/></circle>`).join(""),
     // vektör tekerlekler: dönen jant
-    ust: (sx, sy, d) => [1.5, 8.5].map(cx => `<g transform="translate(${cx * PX} ${2.5 * PX})"><circle r="${PX * 0.95}" fill="#0A0A0A"/><g>${d ? "" : `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="0.25s" repeatCount="indefinite"/>`}<rect x="-0.4" y="${-PX * 0.6}" width="0.8" height="${PX * 1.2}" fill="#A0A0A0"/><rect y="-0.4" x="${-PX * 0.6}" height="0.8" width="${PX * 1.2}" fill="#A0A0A0"/></g></g>`).join(""),
+    ust: (sx, sy, d) => [1.5, 8.5].map(cx => `<g transform="translate(${cx * PX} ${2.5 * PX})"><circle r="${PX * 0.95}" fill="#0A0A0A"/><g>${d ? "" : `<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="0.9s" repeatCount="indefinite"/>`}<rect x="-0.4" y="${-PX * 0.6}" width="0.8" height="${PX * 1.2}" fill="#A0A0A0"/><rect y="-0.4" x="${-PX * 0.6}" height="0.8" width="${PX * 1.2}" fill="#A0A0A0"/></g></g>`).join(""),
     gizle: ["K", "k"],
   },
   yelken: {
     zemin: d => `<linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#FFB37A"/><stop offset="1" stop-color="#9FD3F0"/></linearGradient>
       <rect width="${VB_W}" height="${VB_H}" fill="url(#g)"/><circle cx="46" cy="${ZEMIN - 4}" r="6" fill="#FFE08A" opacity="0.9"/>
-      <g fill="none" stroke="#3A3A3A" stroke-width="0.8"><path d="M0 0 l2 -1.5 l2 1.5"><animate attributeName="d" values="M0 0 l2 -1.5 l2 1.5;M0 0 l2 1 l2 -1;M0 0 l2 -1.5 l2 1.5" dur="0.5s" repeatCount="indefinite"/></path>${d ? "" : `<animateTransform attributeName="transform" type="translate" from="${VB_W} 6" to="-10 4" dur="14s" repeatCount="indefinite"/>`}</g>
+      <g fill="none" stroke="#3A3A3A" stroke-width="0.8"><path d="M0 0 l2 -1.5 l2 1.5"><animate attributeName="d" values="M0 0 l2 -1.5 l2 1.5;M0 0 l2 1 l2 -1;M0 0 l2 -1.5 l2 1.5" dur="1s" repeatCount="indefinite"/></path>${d ? "" : `<animateTransform attributeName="transform" type="translate" from="${VB_W} 6" to="-10 4" dur="14s" repeatCount="indefinite"/>`}</g>
       <rect y="${ZEMIN - 2}" width="${VB_W}" height="${VB_H}" fill="#1E6FB8"/>
       ${kayan(`<path d="${Array.from({ length: 12 }, (_, i) => `M${i * 20} ${ZEMIN - 2} q5 -2.5 10 0 q5 2.5 10 0`).join(" ")}" fill="none" stroke="#E6F4FF" stroke-width="1"/>`, 4, d)}
       ${kayan(`<path d="${Array.from({ length: 8 }, (_, i) => `M${i * 30 + 8} ${ZEMIN + 3} q4 -1.5 8 0`).join(" ")}" fill="none" stroke="#2B86D1" stroke-width="1"/>`, 2.5, d)}`,
@@ -69,7 +72,7 @@ const TEMA = {
       ${kayan([[20, 6, 1], [120, 3, 1.3], [190, 9, 0.9]].map(([x, y, s]) => `<g fill="#E4EEF6" transform="translate(${x} ${y}) scale(${s})"><ellipse cx="6" cy="3" rx="6" ry="2.5"/><ellipse cx="10" cy="1.5" rx="4" ry="2.5"/></g>`).join(""), 16, d)}
       ${kayan([[60, 18, 1.4], [170, 21, 1.1]].map(([x, y, s]) => `<g fill="#FFFFFF" transform="translate(${x} ${y}) scale(${s})"><ellipse cx="6" cy="3" rx="7" ry="3"/><ellipse cx="11" cy="1.5" rx="4.5" ry="3"/></g>`).join(""), 7, d)}`,
     izIc: sx => `<line x1="${-Math.min(40, sx)}" y1="${3.5 * PX}" x2="0" y2="${3.5 * PX}" stroke="#D9E6F2" stroke-width="1.2" stroke-linecap="round" opacity="0.8"/>`,
-    ust: (sx, sy, d) => `<g transform="translate(${12 * PX} ${1.5 * PX})"><ellipse rx="0.8" ry="${PX * 1.4}" fill="#C8C8C8">${d ? "" : `<animate attributeName="ry" values="${PX * 1.4};0.3;${PX * 1.4}" dur="0.12s" repeatCount="indefinite"/>`}</ellipse></g>`,
+    ust: (sx, sy, d) => `<g transform="translate(${12 * PX} ${1.5 * PX})"><ellipse rx="0.8" ry="${PX * 1.4}" fill="#C8C8C8">${d ? "" : `<animate attributeName="ry" values="${PX * 1.4};0.3;${PX * 1.4}" dur="0.5s" repeatCount="indefinite"/>`}</ellipse></g>`,
     gizle: ["p"],
     sallanma: true,
   },
@@ -77,18 +80,20 @@ const TEMA = {
     zemin: d => `<linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#0B1026"/><stop offset="1" stop-color="#1A1F4A"/></linearGradient>
       <rect width="${VB_W}" height="${VB_H}" fill="url(#g)"/>
       ${kayan(yildizlar(18, 3, "#5C648C", VB_H), 10, d)}${kayan(yildizlar(8, 9, "#FFFFFF", VB_H), 4, d)}`,
-    izIc: sx => `<g transform="translate(0 ${1.5 * PX})"><path d="M0 -3 L-14 0 L0 3 Z" fill="#FF6D00"><animateTransform attributeName="transform" type="scale" values="1 1;1.4 0.8;0.9 1.1;1 1" dur="0.2s" repeatCount="indefinite"/></path><path d="M0 -1.8 L-8 0 L0 1.8 Z" fill="#FFF59D"><animateTransform attributeName="transform" type="scale" values="1 1;0.7 1.2;1.2 0.9;1 1" dur="0.15s" repeatCount="indefinite"/></path></g>`,
+    izIc: sx => `<g transform="translate(0 ${1.5 * PX})"><path d="M0 -3 L-14 0 L0 3 Z" fill="#FF6D00"><animateTransform attributeName="transform" type="scale" values="1 1;1.25 0.9;0.95 1.05;1 1" dur="0.6s" repeatCount="indefinite"/></path><path d="M0 -1.8 L-8 0 L0 1.8 Z" fill="#FFF59D"><animateTransform attributeName="transform" type="scale" values="1 1;0.85 1.1;1.1 0.95;1 1" dur="0.5s" repeatCount="indefinite"/></path></g>`,
     sallanma: true,
   },
 };
 
 const bayrak = bitti => {
   const kareler = Array.from({ length: 6 }, (_, y) => [0, 1].map(x => `<rect x="${x * 2.5}" y="${y * 2.5}" width="2.5" height="2.5" fill="${(x + y) % 2 ? "#111111" : "#FFFFFF"}"/>`).join("")).join("");
-  return `<g transform="translate(${VB_W - 9} 2)"><rect x="-1" width="1" height="${ZEMIN - 2}" fill="#DDDDDD"/><g>${kareler}${bitti ? "" : `<animateTransform attributeName="transform" type="skewY" values="0;-6;0;5;0" dur="0.9s" repeatCount="indefinite"/>`}</g></g>`;
+  return `<g transform="translate(${VB_W - 9} 2)"><rect x="-1" width="1" height="${ZEMIN - 2}" fill="#DDDDDD"/><g>${kareler}${bitti ? "" : `<animateTransform attributeName="transform" type="skewY" values="0;-4;0;3;0" dur="1.8s" repeatCount="indefinite"/>`}</g></g>`;
 };
+// Konfeti BİR KEZ düşer ve görünmez yerde durur (fill="freeze"); sonsuz döngü bitmiş bir
+// koşuyu panelde sürekli kıpırdatıyordu.
 const konfeti = x => ["#FFD54F", "#4FC3F7", "#F06292", "#81C784", "#FFB74D", "#BA68C8"].map((c, i) =>
-  `<g transform="translate(${x + i * 5} 0)"><g><animateTransform attributeName="transform" type="translate" from="0 -2" to="0 ${VB_H + 2}" dur="${1.2 + (i % 3) * 0.3}s" begin="${0.6 + i * 0.15}s" repeatCount="indefinite"/>` +
-  `<rect x="-0.8" y="-0.8" width="1.6" height="1.6" fill="${c}"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="${0.8 + (i % 2) * 0.4}s" repeatCount="indefinite"/></rect></g></g>`).join("");
+  `<g transform="translate(${x + i * 5} 0)"><g><animateTransform attributeName="transform" type="translate" from="0 -2" to="0 ${VB_H + 2}" dur="${1.6 + (i % 3) * 0.3}s" begin="${0.3 + i * 0.15}s" fill="freeze"/>` +
+  `<rect x="-0.8" y="-0.8" width="1.6" height="1.6" fill="${c}"><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="${1.6 + (i % 2) * 0.4}s" fill="freeze"/></rect></g></g>`).join("");
 
 // Bir üyenin şeridi: tam SVG belgesi. ilerleme 0..1 (yüzde adımlarına yuvarlanır: gereksiz yeniden çizim yok).
 // Bir üyenin şeridi: tam SVG belgesi. İlerleme %4 adımlarla değişir (yol boyunca 25 hamle): kaynak seyrek
