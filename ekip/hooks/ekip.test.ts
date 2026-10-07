@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP } from './ekip.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -27,7 +27,8 @@ test('inceleme promptu yalnız aktif ekibin bitmiş işçi çıktılarını alı
 })
 
 test('oturum açılınca aktif ekibin üyeleri kaydedilir; ekip dışı tip gizlenir', async ($, on) => {
-  mock.store(on, { aktif: 'Arayüz ekibi' })
+  // Etkin ekip proje başına: anahtar "aktif:<cwd>".
+  mock.store(on, { 'aktif:/proje': 'Arayüz ekibi' })
   const kayit: string[] = []
   on('agent.register', (_$: unknown, e: any) => (kayit.push(e.name), { value: { agent: `ekip:${e.name}` } }) as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -67,14 +68,26 @@ test('panelden görev ver: tuş → görev kutusu → doğru ajan tipi başlar; 
   for (const surface of ['terminal', 'desktop'] as const) {
     const ui = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip',
       props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
-    expect(await ui.find({ type: 'Text', text: /Firmware ekibi/ })).toBeDefined()
+    // Firmware olmayan proje → Yazılım ekibi; görev düğmeleri "Elle yönet" arkasında.
+    expect(await ui.find({ type: 'Text', text: /Yazılım ekibi/ })).toBeDefined()
+    expect(await ui.find({ type: 'Button', key: 'b-danisman' })).toBeUndefined()
+    await ui.press({ key: 'elle' })
     await ui.press({ key: 'b-danisman' })
     await ui.input({ key: 'gorev', text: 'mimariyi değerlendir' })
     expect(spawned.at(-1).subagent_type).toBe('ekip:danisman')
     expect(spawned.at(-1).prompt).toBe('mimariyi değerlendir')
     expect(toasts.some(x => /başlatılamadı/.test(x))).toBe(false)
+    await ui.press({ key: 'elle' }) // sonraki yüzey otomatik görünümle başlasın
     await ui.unmount()
   }
+})
+
+test('proje türü: .ioc / platformio / Core+Drivers firmware, gerisi yazılım', () => {
+  expect(firmwareMi(['Proje.ioc', 'README.md'])).toBe(true)
+  expect(firmwareMi(['platformio.ini'])).toBe(true)
+  expect(firmwareMi(['Core', 'Drivers', 'Makefile'])).toBe(true)
+  expect(firmwareMi(['backend', 'frontend', 'deploy', 'spfx'])).toBe(false)
+  expect(SABLON_EKIPLER.some(e => e.ad === VARSAYILAN_EKIP.yazilim)).toBe(true)
 })
 
 test('modeller takma adla: danışman en güncel Fable, işçiler en güncel Opus', () => {
@@ -138,7 +151,7 @@ test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik s
   expect(temaSec(2, 1000).ad).toBe(temaSec(2, 1000).ad)
 })
 
-test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', async ($, on) => {
+test('/ekip kur (otomatik): Fable planı onay beklemeden başlar, her üye görevle', async ($, on) => {
   mock.clock(on)
   mock.store(on, {})
   on('ui.toast', () => ({ value: undefined }) as never)
@@ -160,8 +173,8 @@ test('/ekip kur: Fable planı panelde, onayla → her üye görevle başlar', as
   expect(modeller[0]).toBe('fable')
   const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
     props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
-  expect(await ui.find({ type: 'Text', text: /Fable'ın planı: UART Ekibi/ })).toBeDefined()
-  await ui.press({ key: 'onay' })
+  // Otomatik mod: onay düğmesi yok, plan kaydedilip üyeler kendiliğinden başladı.
+  expect(await ui.find({ type: 'Button', key: 'onay' })).toBeUndefined()
   expect(reg).toEqual(expect.arrayContaining(['surucu', 'testci']))
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:surucu', 'ekip:testci'])
   expect(spawned[0].prompt).toBe('uart_dma.c yaz')

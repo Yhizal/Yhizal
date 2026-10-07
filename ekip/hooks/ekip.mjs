@@ -68,7 +68,20 @@ export const ROLLER = {
 export const SABLON_EKIPLER = [
   { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici"] },
   { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu"] },
+  // Firmware olmayan projelerin öntanımlısı (ör. AR-GE Takip Platformu: FastAPI + React).
+  { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu"] },
 ];
+
+// OTOMATİK MOD (v0.8.0, 7 Eki 2026 — kullanıcı: "müdahale etmek istemiyorum, Fable yönetsin"):
+// ekip projeye göre kendiliğinden seçilir, Fable'ın planı onay beklemeden başlar, panel
+// yalnız izleme gösterir; elle yönetim tuşları "⚙ Elle yönet"in arkasında.
+export const VARSAYILAN_EKIP = { firmware: "Firmware ekibi", yazilim: "Yazılım ekibi" };
+/** Proje kökündeki adlardan firmware mı: CubeMX .ioc, PlatformIO, ya da Core + Drivers. */
+export function firmwareMi(adlar) {
+  const a = adlar.map(x => String(x).toLowerCase());
+  return a.some(x => x.endsWith(".ioc") || x === "platformio.ini") || (a.includes("core") && a.includes("drivers"));
+}
+let elleAcik = false; // "⚙ Elle yönet" açık mı (oturum içi; yeniden yüklemede kapanır)
 
 let aktifUyeler = new Set();
 // Raster animasyonu: render'ın çizdiği canlı şeritler; saat bunları blit ile yeniden boyar.
@@ -243,21 +256,44 @@ export function incelemePrompt(ekip, kosular) {
 
 async function ekipler($) {
   const kayit = await $.store.get("ekipler");
-  if (Array.isArray(kayit) && kayit.length) return kayit;
+  if (Array.isArray(kayit) && kayit.length) {
+    // Sonradan eklenen şablonlar (ör. Yazılım ekibi) eski kayıtlara da girsin.
+    const eksik = SABLON_EKIPLER.filter(s => !kayit.some(x => x.ad === s.ad));
+    if (!eksik.length) return kayit;
+    const tam = [...kayit, ...eksik];
+    await $.store.set("ekipler", tam);
+    return tam;
+  }
   await $.store.set("ekipler", SABLON_EKIPLER);
   return SABLON_EKIPLER;
 }
 
+// Etkin ekip PROJE başına tutulur (eskiden tek, global "aktif" vardı: bir web projesinde
+// STM32 "Firmware ekibi" görünüyordu). Kayıt yoksa proje türünden seçilir.
+let projeKlasoru = ""; // session.start'ın cwd'si (yeniden yüklemede session.start yine gelir)
+const aktifAnahtari = async () => `aktif:${projeKlasoru}`;
+async function varsayilanEkipAdi($) {
+  try {
+    const ogeler = await $.fs.list();
+    return firmwareMi(ogeler.map(o => o.name)) ? VARSAYILAN_EKIP.firmware : VARSAYILAN_EKIP.yazilim;
+  } catch {
+    return VARSAYILAN_EKIP.yazilim;
+  }
+}
+
 async function aktifEkip($) {
   const liste = await ekipler($);
-  const ad = await $.store.get("aktif");
-  return liste.find(x => x.ad === ad) ?? liste[0];
+  const ad = await $.store.get(await aktifAnahtari());
+  const secili = liste.find(x => x.ad === ad);
+  if (secili) return secili;
+  const varsayilan = await varsayilanEkipAdi($);
+  return liste.find(x => x.ad === varsayilan) ?? liste[0];
 }
 
 async function yukle($, ad) {
   const liste = await ekipler($);
   const ekip = liste.find(x => x.ad === ad) ?? liste[0];
-  await $.store.set("aktif", ekip.ad);
+  await $.store.set(await aktifAnahtari(), ekip.ad);
   aktifUyeler = new Set(ekip.uyeler);
   for (const u of ekip.uyeler) {
     if (!rolu(ekip, u)) continue;
@@ -342,7 +378,7 @@ async function sor($, soru) {
     : { soru, cevap: `Cevap alınamadı: ${r.reason}`, durum: "hata" });
 }
 
-const KULLANICI = "Kullanıcı STM32/HAL, Altium ve ThingsBoard ile çalışan bir donanım AR-GE mühendisi; token tasarrufu ve diff disiplini önemli.";
+const KULLANICI = "Kullanıcı EMELEC AR-GE'de; donanım (STM32/HAL, Altium, ThingsBoard) ve AR-GE Takip Platformu (FastAPI + React, SharePoint köprüsü) üzerinde çalışır. Türkçe, kısa ve tablolu rapor ister; ekibe müdahale etmek istemez — kararları sen (Fable) ver. Token tasarrufu ve diff disiplini önemli.";
 const KUR_SISTEM = `Sen ekip kurucu danışmansın. Kullanıcının hedefine göre en fazla ${MAX_UYE} işçi ajanlı bir ekip tasarla ve her üyeye ilk somut görevini ata. İşçiler en güncel Opus ile çalışır; sen ekibin danışmanısın. Paralel çalışacakları için aynı dosyayı iki üyeye verme. ${KULLANICI}
 Yalnız JSON döndür, başka metin yazma:
 {"ad":"Ekip adı","amac":"tek cümle","uyeler":[{"ad":"kisa-ad","aciklama":"ne zaman çağrılır","talimat":"üyenin kalıcı sistem talimatı","araclar":["Read","Grep","Glob","Edit","Write","Bash","WebFetch","WebSearch" içinden gerekenler],"gorev":"ilk görev, somut ve doğrulanabilir"}]}`;
@@ -357,6 +393,8 @@ async function kur($, hedef) {
   await $.state.set(TASLAK, taslak
     ? { durum: "hazir", hedef, ...taslak, ...notu(r) }
     : { durum: "hata", hedef, hata: r.isAnswered ? "Fable'ın planı okunamadı; hedefi biraz daha somut yaz." : `Fable'a ulaşılamadı: ${r.reason}` });
+  // Otomatik mod: plan onay beklemez, üyeler hemen başlar (elle yönetimde onay düğmesi kalır).
+  if (taslak && !elleAcik) await onayla($);
 }
 
 async function onayla($) {
@@ -429,6 +467,7 @@ export async function baslat($, uye, gorev, tur) {
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
+    projeKlasoru = String(r?.cwd ?? e.cwd ?? "");
     ticker?.cancel?.();
     ticker = null;
     anim?.cancel?.();
@@ -534,7 +573,7 @@ export function register(on) {
       const kosuyor = k && k.durum !== "hata" && k.durum !== "iptal" && !(fableMesgul && k.durum !== "calisiyor");
       const tema = k ? temaSec(i, k.baslangic) : null;
       const ad = Text({ color: dan_ ? "magenta" : "white", bold: dan_, children: `${dan_ ? "◆" : "▸"} ${u.slice(0, 18).padEnd(19)}` });
-      const buton = girisVar && i < 9 ? [Text({ children: "  " }), Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: "görev ver", onPress: () => modAyarla({ tur: "gorev", uye: u }) })] : [];
+      const buton = girisVar && elleAcik && i < 9 ? [Text({ children: "  " }), Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: "görev ver", onPress: () => modAyarla({ tur: "gorev", uye: u }) })] : [];
       const sag = kosuyor
         ? [Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }), Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
         : [Text({ children: " ".repeat(11) })];
@@ -601,7 +640,7 @@ export function register(on) {
       const kapat = () => modAyarla(null);
       if (mod.tur === "gorev") return [Input({ key: "gorev", autoFocus: true, label: `${mod.uye} görevi`, placeholder: "Ne yapsın?", submitLabel: "başlat",
         onSubmit: v => { kapat(); if (v.trim()) void baslat($, mod.uye, v.trim()); } })];
-      if (mod.tur === "kur") return [Input({ key: "kur", autoFocus: true, label: "Hedef (Fable ekibi kursun)", placeholder: "örn. STM32 UART DMA sürücüsünü yaz, test et, belgele", submitLabel: "tasarla",
+      if (mod.tur === "kur") return [Input({ key: "kur", autoFocus: true, label: "Hedef (Fable ekibi kursun)", placeholder: "örn. Haftam panosundaki taşmayı çöz, test et, belgele", submitLabel: "tasarla",
         onSubmit: v => { kapat(); if (v.trim()) void kur($, v.trim()); } })];
       if (mod.tur === "soru") return [Input({ key: "soru", autoFocus: true, label: "Danışmana soru", placeholder: "Mimari / karar sorusu…", submitLabel: "sor",
         onSubmit: v => { kapat(); if (v.trim()) void sor($, v.trim()); } })];
@@ -637,6 +676,13 @@ export function register(on) {
     };
 
     const eylem = (key, hotkey, label, onPress) => Button({ key, hotkey, plain: true, label, onPress });
+    // Elle yönetim aç/kapa: modül değişkeni + çerçeve sayacıyla yeniden çizim.
+    const elleDegis = () => {
+      elleAcik = !elleAcik;
+      void $.state.set(FRAME, frame + 1);
+    };
+    const durdurDugmesi = tur && (tur.durum === "calisiyor" || tur.durum === "degerlendiriliyor")
+      ? [eylem("dur", "p", "Durdur", () => void $.state.set(TUR, { ...tur, durum: "durduruldu" }))] : [];
 
     return Box({
       flexDirection: "column", paddingX: 1,
@@ -646,7 +692,7 @@ export function register(on) {
           Text({ dimColor: true, children: `  ${ekip.amac}` }),
           Text({ color: calisan ? "cyan" : "gray", children: `  ·  ${calisan}/${ekip.uyeler.length} çalışıyor` }),
         ] }),
-        ...(ekip.oto || tur ? [Box({ key: "tur", flexDirection: "row", children: [
+        ...(ekip.oto || tur || !elleAcik ? [Box({ key: "tur", flexDirection: "row", children: [
           Text({ dimColor: true, children: "  Fable atıyor, Opus yürütüyor  ·  " }),
           Text({ color: tur?.durum === "bitti" ? "green" : tur?.durum === "durduruldu" ? "yellow" : "cyan", children:
             !tur ? "beklemede" : tur.durum === "calisiyor" ? `${spin} tur ${tur.no}/${MAX_TUR} çalışıyor`
@@ -670,7 +716,7 @@ export function register(on) {
         Box({ key: "uyeler", flexDirection: "column", marginTop: 1, children: ekip.uyeler.map(uyeSatiri) }),
         ...giris(),
         Box({ key: "kosular", flexDirection: "column", marginTop: 1, children: [
-          Text({ dimColor: true, children: kosular.length ? "Son koşular" : "Henüz koşu yok — bir üyeye görev ver (1-9) ya da ana model ajan çağırsın." }),
+          Text({ dimColor: true, children: kosular.length ? "Son koşular" : "Henüz koşu yok — görev geldikçe ekip burada çalışır; senin bir şey yapman gerekmez." }),
           ...kosular.slice(-5).map(kosuSatiri),
         ] }),
         ...(dan ? [Box({ key: "dan", flexDirection: "column", marginTop: 1, children: [
@@ -680,12 +726,17 @@ export function register(on) {
             ? Text({ color: "cyan", children: `  ${spin} düşünüyor…` })
             : Markdown ? Markdown({ key: "cevap", text: dan.cevap ?? "", dimColor: dan.durum === "hata" }) : Text({ children: dan.cevap ?? "" }),
         ] })] : []),
-        ...(girisVar ? [Box({ key: "eylem", flexDirection: "row", flexWrap: "wrap", marginTop: 1, children: [
+        // Otomatik görünüm: yalnız Durdur (iş sürüyorsa) ve "Elle yönet". Elle yönetim açılınca tüm tuşlar.
+        ...(girisVar && !elleAcik ? [Box({ key: "eylem", flexDirection: "row", flexWrap: "wrap", marginTop: 1, children: [
+          ...durdurDugmesi,
+          eylem("elle", "m", "⚙ Elle yönet", elleDegis),
+        ] })] : []),
+        ...(girisVar && elleAcik ? [Box({ key: "eylem", flexDirection: "row", flexWrap: "wrap", marginTop: 1, children: [
           ...(taslak?.durum === "hazir" ? [
             Button({ key: "onay", hotkey: "o", variant: "primary", label: "Planı onayla ve başlat", onPress: () => void onayla($) }),
             eylem("red", "r", "Reddet", () => void $.state.set(TASLAK, null)),
           ] : [eylem("kur", "k", "Fable ekip kursun", () => modAyarla({ tur: "kur" }))]),
-          ...(tur && (tur.durum === "calisiyor" || tur.durum === "degerlendiriliyor") ? [eylem("dur", "p", "Durdur", () => void $.state.set(TUR, { ...tur, durum: "durduruldu" }))] : []),
+          ...durdurDugmesi,
           eylem("sor", "s", "Danışmana sor", () => modAyarla({ tur: "soru" })),
           eylem("inc", "i", "Çıktıları incelet", () => void incelet()),
           eylem("deg", "e", "Ekip değiştir", () => modAyarla({ tur: "ekip" })),
@@ -693,7 +744,9 @@ export function register(on) {
           eylem("ekle", "u", "Üye ekle", () => modAyarla({ tur: "uye" })),
           eylem("cik", "x", "Üye çıkar", () => modAyarla({ tur: "cikar" })),
           eylem("tem", "t", "Temizle", () => { void $.state.set(KOSULAR, kosular.filter(k => k.durum === "calisiyor")); void $.state.set(DANISMAN, null); }),
-        ] })] : [Text({ key: "mobil", dimColor: true, children: "Bu yüzeyde yalnız izleme var; yönetim terminal/masaüstünde." })]),
+          eylem("elle", "m", "Gizle", elleDegis),
+        ] })] : []),
+        ...(girisVar ? [] : [Text({ key: "mobil", dimColor: true, children: "Bu yüzeyde yalnız izleme var; yönetim terminal/masaüstünde." })]),
       ],
     });
   });
