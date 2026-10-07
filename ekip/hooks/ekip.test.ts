@@ -35,7 +35,7 @@ test('oturum açılınca aktif ekibin üyeleri kaydedilir; ekip dışı tip gizl
   on('session.start', (_$: unknown, e: any) => e as never)
   on('agent.offer', () => ({ isOffered: true }) as never)
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
-  expect(kayit).toEqual(['danisman', 'arayuz-gelistirici', 'dokumantasyoncu', 'hizli-isci'])
+  expect(kayit).toEqual(['danisman', 'arayuz-gelistirici', 'dokumantasyoncu', 'hizli-isci', 'hafif-isci', 'model-izci'])
   const ic: any = await $.agent.offer({ agent: 'ekip:dokumantasyoncu', description: '', source: 'plugin', provider: {} } as never)
   const dis: any = await $.agent.offer({ agent: 'ekip:firmware-analist', description: '', source: 'plugin', provider: {} } as never)
   expect(ic.isOffered).toBe(true)
@@ -93,12 +93,14 @@ test('proje türü: .ioc / platformio / Core+Drivers firmware, gerisi yazılım'
 test('üç kademe takma adla: danışman Fable, uzman Opus, hızlı Sonnet; işçi talimatında kademe ve biçim', () => {
   expect(DANISMAN_MODEL).toBe('fable')
   expect(ISCI_MODEL).toBe('opus')
-  const hizli = ['test-yazici', 'dokumantasyoncu', 'hizli-isci']
-  for (const [ad, r] of Object.entries(ROLLER)) if (ad !== 'danisman') {
-    expect((r as any).model).toBe(hizli.includes(ad) ? 'sonnet' : 'opus')
-    expect((r as any).prompt).toMatch(hizli.includes(ad) ? /Hızlı kademedesin/ : /Uzman kademedesin/)
+  const hizli = ['test-yazici', 'dokumantasyoncu', 'hizli-isci'], hafif = ['hafif-isci']
+  for (const [ad, r] of Object.entries(ROLLER)) if ((r as any).rol === 'isci') {
+    expect((r as any).model).toBe(hafif.includes(ad) ? 'haiku' : hizli.includes(ad) ? 'sonnet' : 'opus')
+    expect((r as any).prompt).toMatch(hafif.includes(ad) ? /Hafif kademedesin/ : hizli.includes(ad) ? /Hızlı kademedesin/ : /Uzman kademedesin/)
     expect((r as any).prompt).toMatch(/ÖZET: <tek cümle>/)
   }
+  expect((ROLLER as any)['model-izci'].model).toBe('haiku')
+  expect((ROLLER as any)['model-izci'].tools).toEqual(['WebFetch'])
   expect(ROLLER.danisman.prompt).toMatch(/EKİP KURALLARI v2/)
 })
 
@@ -233,7 +235,7 @@ test('yoğun iş: kademeli model ataması ve bağımlı üye sırası', async ($
   const sistemler: string[] = []
   on('model.complete', (_$: unknown, e: any) => {
     const s = String(e.system)
-    sistemler.push(/ekip kurucu/.test(s) ? 'kur' : /ara brif/.test(s) ? 'brif' : 'deger')
+    sistemler.push(/model kullanım stratejisi/.test(s) ? 'strateji' : /ekip kurucu/.test(s) ? 'kur' : /ara brif kararı/.test(s) ? 'brif' : 'deger')
     const text = /ekip kurucu/.test(s) ? JSON.stringify({ ad: 'ADC Ekibi', amac: 'kalibrasyon', yogunluk: 'yogun', uyeler: [
         { ad: 'cekirdek', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'adc.c kalibrasyonu', bitis_olcutu: 'make test', dosyalar: ['adc.c'], beklenen_sure_dk: 10 },
         { ad: 'belgeci', model: 'sonnet', araclar: ['Read', 'Write'], gorev: 'README güncelle', bitis_olcutu: 'grep ADC README.md', dosyalar: ['README.md'] },
@@ -255,7 +257,7 @@ test('yoğun iş: kademeli model ataması ve bağımlı üye sırası', async ($
   expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:cekirdek', 'opus'], ['ekip:belgeci', 'sonnet']])
   expect(spawned[0].prompt).toMatch(/^\[YOĞUN\] adc\.c kalibrasyonu\nBitiş ölçütü: make test/)
   expect(toasts.some(t => /1 Opus, 2 Sonnet · bütçe normal · yoğun iş/.test(t))).toBe(true)
-  expect(sistemler).toEqual(['kur'])
+  expect(sistemler).toEqual(['strateji', 'kur'])          // önce projenin model stratejisi, sonra plan
 })
 
 test('tur adımı: biten üye bağımlıyı açar (çıktısıyla), yoğun işte süren varsa T1/T3 brif tetiklenir', () => {
@@ -300,7 +302,7 @@ test('kritik kota: Fable bütçeyi görür, plan 2 üyeye ve yalnız Sonnet\'e k
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
   await $.command.run({ command: 'ekip', args: 'kur büyük iş', origin: 'user' } as never)
   await new Promise(r => setTimeout(r, 50))
-  expect(istemler[0]).toMatch(/Kota: 5 saat %93[\s\S]*Bütçe: KRİTİK — en fazla 2 işçi, 1 tur, en fazla 0 Opus, ara brif yok/)
+  expect(istemler.find(x => /^Hedef:/.test(x))).toMatch(/Kota: 5 saat %93[\s\S]*Bütçe: KRİTİK — en fazla 2 işçi, 1 tur, en fazla 0 Opus, ara brif yok/)
   expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:mimar', 'sonnet'], ['ekip:ikinci', 'sonnet']])
   expect(toasts.some(t => /0 Opus, 2 Sonnet · bütçe kritik/.test(t))).toBe(true)
   const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
@@ -327,4 +329,40 @@ test('son kontrol: karar satırı okunur, istem doğrulama ister; elle işler he
   k[1].durum = 'bitti'; k[1].bitis = 250
   expect(elleKontrolEdilecek(k, 0).map((x: any) => x.tip)).toEqual(['ekip:hizli-isci', 'ekip:test-yazici'])  // danışman ve turlu işler hariç
   expect(elleKontrolEdilecek(k, 220).map((x: any) => x.tip)).toEqual(['ekip:test-yazici'])                   // önceki kontrolden sonra bitenler
+})
+
+test('dinamik strateji: danışman projeye göre yazar, plana eklenir, sonraki kurulumda önbellekten; Haiku ataması', async ($, on) => {
+  mock.clock(on)
+  mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('fs.list', (_$: unknown, e: any) => ({ value: /Core$/.test(String(e.path ?? '')) ? [{ name: 'main.c', kind: 'file', size: 1, mtimeMs: 0, isLink: false }]
+    : [{ name: 'Proje.ioc', kind: 'file', size: 1, mtimeMs: 0, isLink: false }, { name: 'Core', kind: 'dir', size: 0, mtimeMs: 0, isLink: false }] }) as never)
+  const cagri: Array<{ tur: string, prompt: string }> = []
+  on('model.complete', (_$: unknown, e: any) => {
+    const strateji = /model kullanım stratejisi/.test(String(e.system))
+    cagri.push({ tur: strateji ? 'strateji' : 'kur', prompt: String(e.prompt) })
+    const text = strateji
+      ? JSON.stringify({ ozet: 'STM32 firmware', kademeler: { opus: ['DMA/kesme hatası'], sonnet: ['HAL çağrısı ekleme'], haiku: ['derleme uyarısı envanteri'] } })
+      : JSON.stringify({ ad: 'Uyarı Ekibi', amac: 'x', uyeler: [{ ad: 'sayac', model: 'haiku', araclar: ['Read', 'Bash'], gorev: 'uyarıları say', bitis_olcutu: 'tablo' }] })
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model }) as never)
+  await $.session.start({ cwd: '/fw', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'kur derleme uyarılarını topla', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 50))
+  expect(cagri.map(c => c.tur)).toEqual(['strateji', 'kur'])
+  expect(cagri[0].prompt).toMatch(/hafif: haiku \(claude-haiku-5-5\)[\s\S]*Proje profili: C\/C\+\+ firmware 2[\s\S]*işaretler: firmware/)
+  expect(cagri[1].prompt).toMatch(/MODEL STRATEJİSİ \(bu proje, danışmanın kendi kararı\):\nÖzet: STM32 firmware\n- Opus \(uzman\): DMA\/kesme hatası/)
+  expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:sayac', 'haiku']])
+  expect(spawned[0].prompt).toMatch(/uyarıları say/)
+  await $.command.run({ command: 'ekip', args: 'kur ikinci iş', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 50))
+  expect(cagri.map(c => c.tur)).toEqual(['strateji', 'kur', 'kur'])                     // strateji önbellekten
+  const m: any = await $.command.run({ command: 'ekip', args: 'modeller', origin: 'user' } as never)
+  expect(m.text).toMatch(/Model profili[\s\S]*claude-haiku-5-5[\s\S]*varsayılan; "\/ekip modeller yenile"/)
 })

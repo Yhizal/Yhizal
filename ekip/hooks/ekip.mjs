@@ -1,6 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
-import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR } from "./kurallar.mjs";
+import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -16,6 +16,7 @@ const ADIM_BELLEK = { plugin: "ekip", key: "adimBellek" };
 const BRIFLER = { plugin: "ekip", key: "brifler" }; // bu turun ara brifleri: [{ no, uye, eylem, tetik, neden, zaman }]
 const BUTCE = { plugin: "ekip", key: "butce" }; // { seviye, ozet } — son okunan kota bütçesi
 const SON_KONTROL = { plugin: "ekip", key: "sonKontrol" }; // { id?, durum: bekliyor|onay|ret|hata, baslik, neden? }
+const IZCI = { plugin: "ekip", key: "izciId" }; // siteden model profili okuyan izci ajanın kimliği
 const ORNEK_MAX = 40;
 const PANE = "ekip";
 
@@ -75,15 +76,28 @@ export const ROLLER = {
     prompt: "Verilen dar kapsamlı işi tarif edildiği gibi yap; mevcut deseni izle; mevcut dosyada yalnız değişen bloğu düzenle; bitiş ölçütünü çalıştırıp sonucu bildir.",
     tools: ["Read", "Grep", "Glob", "Edit", "Bash"],
   },
+  "hafif-isci": {
+    rol: "isci", model: HAFIF_MODEL, maxTurns: 15,
+    description: "Yüksek hacimli mekanik işler (Haiku): log/CSV/telemetri tarama ve sınıflandırma, dosya/uyarı/TODO envanteri, alan çıkarma, çıktıları tabloya dökme. Kod mantığı değiştirmez.",
+    prompt: "Verilen mekanik işi eksiksiz yap: tara, sınıflandır, say, çıkar, tabloya dök. Kaynak dosyaları değiştirme; sonucu doğrulanabilir sayılarla ver.",
+    tools: ["Read", "Grep", "Glob", "Bash"],
+  },
+  // Ekip üyesi değil: danışmanın gözü (§8). Modellerin yeteneklerini Anthropic'in sitesinden okur; Haiku, çünkü iş çıkarım.
+  "model-izci": {
+    rol: "izci", model: HAFIF_MODEL, maxTurns: 6,
+    description: "Anthropic model sayfasından güncel Claude modellerinin yetenek, hız ve fiyatını çıkarır (ekip danışmanı için).",
+    prompt: "Görevin: WebFetch ile https://platform.claude.com/docs/en/about-claude/models/overview sayfasını (yönlendirme olursa yeni adresi) oku; gerekirse https://platform.claude.com/docs/en/about-claude/models/choosing-a-model sayfasına da bak. fable, opus, sonnet ve haiku ailelerinin her birinden en güncel modeli al. Yalnız JSON döndür, başka metin yazma:\n{\"kaynak\":\"okunan adres\",\"modeller\":[{\"alias\":\"fable|opus|sonnet|haiku\",\"id\":\"claude-...\",\"gecikme\":\"sitedeki göreli gecikme\",\"fiyat\":\"$girdi / $çıktı (MTok)\",\"guclu\":\"sitedeki tanım ve önerilen kullanım, Türkçe, ≤150 karakter\"}]}",
+    tools: ["WebFetch"],
+  },
 };
 // Her işçinin talimatına kademe sınırı ve çıktı biçimi eklenir (kurallar.mjs §1, §4).
 for (const r of Object.values(ROLLER)) if (r.rol === "isci") r.prompt += `\n\n${KADEME_EK[r.model]}\n${ISCI_FORMAT}`;
 
 export const SABLON_EKIPLER = [
-  { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici", "hizli-isci"] },
-  { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu", "hizli-isci"] },
+  { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici", "hizli-isci", "hafif-isci"] },
+  { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu", "hizli-isci", "hafif-isci"] },
   // Firmware olmayan projelerin öntanımlısı (ör. AR-GE Takip Platformu: FastAPI + React).
-  { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu", "hizli-isci"] },
+  { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu", "hizli-isci", "hafif-isci"] },
 ];
 
 // OTOMATİK MOD (v0.8.0, 7 Eki 2026 — kullanıcı: "müdahale etmek istemiyorum, Fable yönetsin"):
@@ -438,16 +452,94 @@ const butceSatiri = b => `Kota: ${b.ozet}. Bütçe: ${b.seviye.toLocaleUpperCase
 // Bütçenin Opus'tan Sonnet'e indirdiği üyenin kademe talimatı da değişir.
 const indir = u => (u.inen ? { ...u, prompt: u.prompt.replace(KADEME_EK[UZMAN_MODEL], KADEME_EK[HIZLI_MODEL]) } : u);
 
+// ── Dinamik model stratejisi (§8): siteden model profili + proje içeriği → danışmanın proje başına stratejisi ──
+const GUN = 86_400_000;
+async function modelProfili($) {
+  const p = await $.store.get("modelProfili");
+  return p?.modeller?.length ? p : MODEL_PROFILI_VARSAYILAN;
+}
+/** Model izcisini (Haiku, WebFetch) başlatır; cevabı turn.complete'te profil olarak saklanır. */
+async function modelleriYenile($, { sessiz = false } = {}) {
+  await $.store.set("izciDeneme", Date.now());
+  const r = await $.agent.spawn({ subagentType: `${P}:model-izci`, prompt: "Güncel Claude modellerinin yetenek profilini çıkar (talimatındaki JSON biçiminde).", description: "model profili (site)" });
+  if (r.agentId) {
+    await $.state.set(IZCI, r.agentId);
+    await kosuEkle($, r.agentId, `${P}:model-izci`, "model profili (site)", r.model);
+    if (!sessiz) $.ui.toast("◆ Danışman model profilini siteden tazeliyor (Haiku)");
+  } else if (!sessiz) $.ui.toast(`ekip: model izcisi başlamadı — ${String(r.deny ?? "bilinmeyen").slice(0, 60)}`);
+  return r;
+}
+/** İzcinin cevabı: geçerliyse profil saklanır ve bu projenin stratejisi yeni profille yeniden yazılır. */
+async function izciBitti($, cikti, basarili) {
+  await $.state.set(IZCI, null);
+  const p = basarili ? profilDogrula(jsonAl(cikti), new Date().toISOString().slice(0, 10)) : null;
+  if (!p) { $.ui.toast("⚠ ekip: model profili siteden okunamadı; mevcut profil kullanılmaya devam ediyor"); return; }
+  const once = await modelProfili($);
+  const degisen = p.modeller.filter(m => !once.modeller.some(o => o.id === m.id && o.fiyat === m.fiyat)).map(m => m.id);
+  // Model ya da fiyat değişmediyse profil tarihi korunur: stratejiler boşuna yeniden yazılmaz (token).
+  await $.store.set("modelProfili", { ...p, tarih: degisen.length ? p.tarih : once.tarih, alinma: Date.now() });
+  if (!degisen.length) { $.ui.toast("✔ Model profili siteden doğrulandı — değişiklik yok"); return; }
+  $.ui.toast(`✔ Model profili güncellendi — yeni/değişen: ${degisen.join(", ")}; proje stratejisi yenileniyor`);
+  void strateji($, { zorla: true }).catch(() => {});
+}
+async function profilYasliysaYenile($) {
+  const p = await $.store.get("modelProfili");
+  const alinma = p?.alinma ?? Date.parse(MODEL_PROFILI_VARSAYILAN.tarih);
+  const deneme = (await $.store.get("izciDeneme")) ?? 0;
+  if (Date.now() - alinma > 7 * GUN && Date.now() - deneme > GUN) await modelleriYenile($, { sessiz: true });
+}
+const ATLA = /^(node_modules|\.git|build|dist|debug|release|\.venv|venv|__pycache__|\.next|out|target|\.claude)$/i;
+/** Proje kökü ve bir alt düzey (en fazla 400 dosya) + öne çıkan işaretler. */
+async function projeTara($) {
+  const dosyalar = [], isaretler = [];
+  let kok = [];
+  try { kok = await $.fs.list(); } catch { return projeProfili([]); }
+  const adlar = kok.map(e => e.name);
+  if (firmwareMi(adlar)) isaretler.push("firmware (CubeMX/PlatformIO)");
+  if (adlar.includes("package.json")) isaretler.push("npm");
+  if (adlar.some(a => /^(pyproject\.toml|requirements.*\.txt)$/i.test(a))) isaretler.push("python paketi");
+  if (adlar.some(a => /^(docker-compose.*\.ya?ml|dockerfile)$/i.test(a))) isaretler.push("docker");
+  for (const e of kok) {
+    if (dosyalar.length >= 400) break;
+    if (e.kind === "file") dosyalar.push({ yol: e.name });
+    else if (e.kind === "dir" && !ATLA.test(e.name) && !e.name.startsWith(".")) {
+      try { for (const a of (await $.fs.list(e.name)).slice(0, 120)) if (a.kind === "file") dosyalar.push({ yol: `${e.name}/${a.name}` }); } catch {}
+    }
+  }
+  return projeProfili(dosyalar.slice(0, 400), isaretler);
+}
+const STRATEJI_SISTEM = `Sen ekip danışmanısın (Fable). Model profiline (Anthropic'in sitesinden) ve proje profiline bakarak BU PROJE için model kullanım stratejisi yaz: hangi tür iş Opus'a, Sonnet'e, Haiku'ya gider; senin (Fable) kendine sakladığın ne; sınırda ne yapılır. Projenin gerçek iş türlerinden somut örnekler ver (ör. firmware'de "DMA/kesme hatası → Opus", web'de "mevcut desenle API alanı → Sonnet", her projede "log/uyarı envanteri → Haiku"). Fiyat ve hız farkını gözet: aynı işi daha ucuz kademe güvenle yapabiliyorsa onu seç. ${KULLANICI}
+
+${KURALLAR}
+
+Yalnız JSON döndür: {"ozet":"tek cümle","kademeler":{"opus":["iş türü"],"sonnet":["..."],"haiku":["..."],"fable":["..."]},"sinir":"tereddütte kural"}`;
+const stratejiAnahtari = () => `strateji:${projeKlasoru}`;
+/** Projenin stratejisi: eskiyse (profil değişti, proje karakteri değişti, 14 gün) danışman yeniden yazar. */
+async function strateji($, { zorla = false } = {}) {
+  const profil = await modelProfili($);
+  const pp = await projeTara($);
+  const kayit = await $.store.get(stratejiAnahtari());
+  if (!zorla && !stratejiEskiMi(kayit, { profilTarih: profil.tarih, imza: pp.imza })) return kayit.metin;
+  const r = await fable($, { system: STRATEJI_SISTEM, prompt: `${profilMetni(profil)}\n\nProje: ${projeKlasoru || "?"}\nProje profili: ${pp.ozet}`, maxTokens: 1500, timeoutMs: 120_000 });
+  const metin = r.isAnswered ? stratejiMetni(jsonAl(r.text)) : null;
+  if (!metin) return kayit?.metin ?? null;
+  await $.store.set(stratejiAnahtari(), { metin, profilTarih: profil.tarih, imza: pp.imza, zaman: Date.now(), proje: pp.ozet });
+  return metin;
+}
+const stratejiOku = async $ => (await $.store.get(stratejiAnahtari()))?.metin ?? null;
+const stratejiBolumu = st => (st ? `\n\nMODEL STRATEJİSİ (bu proje, danışmanın kendi kararı):\n${st}` : "");
+
 async function kur($, hedef) {
   await $.state.set(TASLAK, { durum: "hazirlaniyor", hedef });
   cark($);
   const b = await butceAl($);
-  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}`, maxTokens: 3500, timeoutMs: 180_000 });
+  const st = await strateji($);
+  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`, maxTokens: 3500, timeoutMs: 180_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
   // Aynı dosya iki üyede: plan bir kez danışmana geri verilir (§2 bölme kuralı).
   if (taslak?.cakisma.length) {
     const not = taslak.cakisma.map(c => `${c.dosya}: ${c.a} ve ${c.b}`).join("; ");
-    const r2 = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}\n\nÖnceki planında aynı dosya iki üyeye verilmiş (${not}). Dosyayı tek üyeye ver, öbürü salt okusun ya da bagimli olsun; planı yeniden yaz.`, maxTokens: 3500, timeoutMs: 180_000 });
+    const r2 = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}\n\nÖnceki planında aynı dosya iki üyeye verilmiş (${not}). Dosyayı tek üyeye ver, öbürü salt okusun ya da bagimli olsun; planı yeniden yaz.`, maxTokens: 3500, timeoutMs: 180_000 });
     const t2 = r2.isAnswered ? planDogrula(jsonAl(r2.text)) : null;
     if (t2) { taslak = t2; r = r2; }
   }
@@ -521,7 +613,7 @@ export async function araBrif($, tetik, kaynak) {
   const son15 = String(kaynak?.cikti ?? "").split("\n").slice(-15).join("\n");
   const r = await fable($, {
     system: BRIF_SISTEM, maxTokens: 800, timeoutMs: 90_000,
-    prompt: `Tetikleyici: ${tetik}${kaynak ? ` — kaynak üye ${ad(kaynak)} (${kaynak.durum})` : ""}. Tur ${tur.no}.\n${butceSatiri(bt)}\n\nKoşan üyeler:\n${durumlar}\n\n` +
+    prompt: `Tetikleyici: ${tetik}${kaynak ? ` — kaynak üye ${ad(kaynak)} (${kaynak.durum})` : ""}. Tur ${tur.no}.\n${butceSatiri(bt)}${stratejiBolumu(await stratejiOku($))}\n\nKoşan üyeler:\n${durumlar}\n\n` +
       (son15 ? `Kaynak üyenin son çıktısı:\n${son15}\n\n` : "") +
       (br.length ? `Bu turdaki önceki brifler:\n${br.map(b => `#${b.no} → ${b.uye} (${b.eylem}): ${b.neden}`).join("\n")}` : "Bu turda henüz brif yok."),
   });
@@ -580,7 +672,7 @@ async function turBitti($, no) {
   const maxTur = Math.min(MAX_TUR, b.ayar.maxTur);
   const r = await fable($, {
     system: DEGER_SISTEM, maxTokens: 3000, timeoutMs: 180_000,
-    prompt: `Ekip: ${ekip.ad}. Hedef: ${ekip.hedef ?? ekip.amac}. Üyeler: ${ekip.uyeler.filter(u => u !== "danisman").join(", ")}. Tur ${no}/${maxTur}. İş: ${yogun ? "yoğun" : "basit"}.\n${butceSatiri(b)}` +
+    prompt: `Ekip: ${ekip.ad}. Hedef: ${ekip.hedef ?? ekip.amac}. Üyeler: ${ekip.uyeler.filter(u => u !== "danisman").join(", ")}. Tur ${no}/${maxTur}. İş: ${yogun ? "yoğun" : "basit"}.\n${butceSatiri(b)}${stratejiBolumu(await stratejiOku($))}` +
       (br.length ? `\nBu turdaki brifler: ${br.map(b => `#${b.no} → ${b.uye} (${b.eylem})`).join(", ")}.` : "") + `\n\n${ciktilar}`,
   });
   const j = r.isAnswered ? jsonAl(r.text) : null;
@@ -642,7 +734,7 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
 
 // Elle ya da ana oturumun verdiği ekip işleri (tursuz): hepsi bitince bir kez danışman kontrol eder.
 export function elleKontrolEdilecek(kosular, sinir) {
-  const isci = x => x.tip.startsWith(`${P}:`) && x.tip !== `${P}:danisman` && !x.tur;
+  const isci = x => x.tip.startsWith(`${P}:`) && x.tip !== `${P}:danisman` && x.tip !== `${P}:model-izci` && !x.tur;
   if (kosular.some(x => isci(x) && x.durum === "calisiyor")) return [];
   return kosular.filter(x => isci(x) && x.durum === "bitti" && (x.bitis ?? 0) > sinir);
 }
@@ -690,12 +782,14 @@ export function register(on) {
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | kurallar]" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | kurallar | modeller [yenile] | strateji [yenile]]" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
     } catch {}
     try { await yukle($, (await aktifEkip($)).ad); } catch (err) { $.ui.toast(`ekip yüklenemedi: ${String(err).slice(0, 80)}`); }
+    // Danışmanın gözü: model izcisi her oturumda kayıtlı (ana modelden gizli); profil haftalıktan eskiyse tazelenir.
+    try { await $.agent.register(spec("model-izci")); void profilYasliysaYenile($).catch(() => {}); } catch {}
     return r;
   });
 
@@ -706,6 +800,21 @@ export function register(on) {
     if (/^sor\s+/i.test(args)) { void sor($, args.replace(/^sor\s+/i, "")); return { text: "Soru danışmana gitti; cevap panelde." }; }
     if (/^kur\s+/i.test(args)) { void kur($, args.replace(/^kur\s+/i, "")); return { text: "Fable ekibi tasarlıyor; plan onay beklemeden başlar, ilerleme panelde." }; }
     if (/^kurallar\b/i.test(args)) { await $.state.set(DANISMAN, { soru: "Ekip kuralları v2", cevap: KURALLAR, durum: "bitti" }); return { text: KURALLAR }; }
+    if (/^modeller\b/i.test(args)) {
+      if (/yenile/i.test(args)) { await modelleriYenile($); return { text: "Danışman model profilini Anthropic'in sitesinden tazeliyor (Haiku izci); bitince bildirim gelir, sonra proje stratejisi yenilenir." }; }
+      const p = await modelProfili($);
+      const metin = `${profilMetni(p)}${p.alinma ? `\n(siteden alındı: ${new Date(p.alinma).toLocaleString("tr-TR")})` : "\n(kodla gelen varsayılan; \"/ekip modeller yenile\" siteden tazeler)"}`;
+      await $.state.set(DANISMAN, { soru: "Model profili", cevap: metin, durum: "bitti" });
+      return { text: metin };
+    }
+    if (/^strateji\b/i.test(args)) {
+      await $.state.set(DANISMAN, { soru: "Model stratejisi (bu proje)", durum: "bekliyor" });
+      const st = await strateji($, { zorla: /yenile/i.test(args) });
+      const kayit = await $.store.get(stratejiAnahtari());
+      const metin = st ? `${st}${kayit?.proje ? `\n\nProje profili: ${kayit.proje}` : ""}` : "Strateji yazılamadı (danışmana ulaşılamadı).";
+      await $.state.set(DANISMAN, { soru: "Model stratejisi (bu proje)", cevap: metin, durum: st ? "bitti" : "hata" });
+      return { text: metin };
+    }
     return { text: "Ajan ekibi paneli açıldı." };
   });
 
@@ -754,6 +863,8 @@ export function register(on) {
     }
     const { value: sk = null } = await $.state.get(SON_KONTROL);
     if (sk?.id === e.agentId) { await sonKontrolBitti($, sk.baslik, kosu.cikti, durum === "bitti"); return r; }
+    const { value: izci = null } = await $.state.get(IZCI);
+    if (izci === e.agentId) { await izciBitti($, kosu.cikti, durum === "bitti"); return r; }
     if (kosu.tur) void turIlerle($, kosu, ad).catch(err => $.ui.toast(`ekip: tur akışı hatası — ${String(err).slice(0, 80)}`));
     else void elleSonKontrol($).catch(err => $.ui.toast(`ekip: son kontrol hatası — ${String(err).slice(0, 80)}`));
     return r;

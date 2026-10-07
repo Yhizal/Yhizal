@@ -4,6 +4,21 @@
 
 export const UZMAN_MODEL = "opus";   // know-how gerektiren çekirdek iş
 export const HIZLI_MODEL = "sonnet"; // tarifi net, hızlı biten iş (takma ad en güncel Sonnet'e çözülür)
+export const HAFIF_MODEL = "haiku";  // yüksek hacimli, mekanik iş: tarama, sınıflandırma, çıkarım, özetleme
+
+// Modellerin yetenek profili — Anthropic'in model sayfasından (platform.claude.com/docs/en/about-claude/models/overview,
+// 7 Eki 2026). Danışman bunu "/ekip modeller yenile" ya da haftalık tazelemeyle siteden günceller; bu yalnız varsayılan.
+export const MODEL_PROFILI_VARSAYILAN = {
+  kaynak: "platform.claude.com/docs/en/about-claude/models/overview", tarih: "2026-10-07",
+  modeller: [
+    { kademe: "danışman", alias: "fable", id: "claude-fable-5-1", gecikme: "yavaş", fiyat: "$10 / $50", guclu: "zorlu akıl yürütme, uzun soluklu ajan işi; Opus yüksek effort'ta yetmediğinde" },
+    { kademe: "uzman", alias: "opus", id: "claude-opus-5-5", gecikme: "orta", fiyat: "$4 / $20", guclu: "uzun süren ajan kodlama ve bilgi işi; çoğu iş için başlangıç modeli" },
+    { kademe: "hızlı", alias: "sonnet", id: "claude-sonnet-5-5", gecikme: "hızlı", fiyat: "$2 / $10", guclu: "hız ve zekânın en iyi dengesi" },
+    { kademe: "hafif", alias: "haiku", id: "claude-haiku-5-5", gecikme: "en hızlı", fiyat: "$0.10 / $0.50'den", guclu: "yüksek hacimli, gecikmeye duyarlı işler: sınıflandırma, çıkarım, yönlendirme" },
+  ],
+};
+export const profilMetni = p => `Model profili (${p.kaynak}, ${p.tarih}; fiyat girdi/çıktı MTok başına):\n` +
+  p.modeller.map(m => `- ${m.kademe}: ${m.alias} (${m.id}) · ${m.gecikme} · ${m.fiyat} · ${m.guclu}`).join("\n");
 
 export const ESIK = {
   YOGUN_ISCI: 3, YOGUN_TUR: 2, YOGUN_DOSYA: 5, YOGUN_SURE_DK: 8,
@@ -23,13 +38,15 @@ export const KURALLAR = `# EKİP KURALLARI v2
 | Danışman | Fable (high) | Hedefi parçalar, ekibi kurar, model atar, ara brif verir, tur sonu değerlendirir, raporu yazar | Yalnız okur; kod yazmaz; üyeye tur içinde en fazla 3 brif |
 | Uzman | Opus | Know-how gerektiren çekirdek iş: tasarım kararı, kök neden, HAL/kesme/DMA/zamanlama, ThingsBoard rule-chain, FastAPI+React mimari değişikliği | Kendi dosya kümesi dışına çıkmaz; görev dışı iyileştirme yapmaz |
 | Hızlı | Sonnet | Tarifi net, doğrulaması belli, yaratıcı karar gerektirmeyen iş | Mimari/algoritma değiştirmez; kararsız kalınca durur, "KARAR GEREKİR: ..." ile biter |
-Zincir: Kullanıcı → Danışman → (Uzman | Hızlı). İşçiler birbirine mesaj atmaz; koordinasyon yalnız Danışman üzerinden. Kullanıcıya soru ancak tüm ekip bloke olunca, tek net soru olarak gider.
+| Hafif | Haiku | Yüksek hacimli, mekanik iş: tarama, sınıflandırma, çıkarım, envanter, çıktıyı tabloya dökme | Kod mantığı değiştirmez; yorum/karar gerekirse "KARAR GEREKİR: ..." ile biter |
+Zincir: Kullanıcı → Danışman → (Uzman | Hızlı | Hafif). İşçiler birbirine mesaj atmaz; koordinasyon yalnız Danışman üzerinden. Kullanıcıya soru ancak tüm ekip bloke olunca, tek net soru olarak gider.
 
 ## 2. Model atama
 Sonnet'e ver (hepsi sağlanmalı): (a) iş tek paragrafla eksiksiz tarif edilebiliyor, (b) doğrulama komutu/ölçütü belli, (c) ≤3 dosya, ≤~150 satır değişiklik, (d) alan bilgisi gerekmiyor.
 Sonnet örnekleri: mevcut test şablonuna case eklemek; README/Doxygen; lint/format; verilen regex ile log tarama; mevcut desenle API alanı/React tablo sütunu eklemek; git diff özetini tabloya dökmek; ThingsBoard widget etiket/birim değişikliği.
 Opus örnekleri: HAL kesme/DMA/zamanlama hatası; Altium kural/footprint değerlendirmesi; rule-chain tasarımı; FastAPI yetki/şema değişikliği; React state mimarisi; kök nedeni bulunmamış her hata; performans; güvenlik.
-Sınır: iki ölçüt tereddütlüyse Opus. Sonnet "KARAR GEREKİR" ile dönerse o parça Opus'a yeniden atanır, bir daha Sonnet'e verilmez.
+Haiku'ya ver: düşünme değil hacim gerektiren, çıktısı mekanik olarak doğrulanabilen iş — log/CSV/telemetri tarama ve sınıflandırma, dosya/TODO/uyarı envanteri, derleyici uyarılarını gruplayıp sayma, kayıt dosyalarından alan çıkarma, işçi çıktılarını tabloya dökme, yeniden adlandırma listesi. Kod mantığına dokunan hiçbir iş Haiku'ya verilmez.
+Sınır: iki ölçüt tereddütlüyse bir üst kademe (Haiku→Sonnet→Opus). "KARAR GEREKİR" ile dönen parça bir üst kademeye yeniden atanır, bir daha alt kademeye verilmez.
 Bölme: büyük iş = 1 çekirdek (Opus) + N hızlı (Sonnet). Hızlı iş çekirdeğin çıktısına bağlıysa "bagimli" ile çekirdeği bekler; bağımsızsa paralel. Aynı dosya iki üyeye verilmez; kaçınılmazsa dosya tek üyede, öbürü salt okur. Kod-inceleyici daima değişikliği yazandan farklı üyedir.
 
 ## 3. Yoğun iş
@@ -63,23 +80,63 @@ Danışman her planda, tur değerlendirmesinde ve brifte kalan 5 saatlik hakkı 
 |---|---|---|
 | bol | 5 saat <%30 ve haftalık tempo rahat | Kurallara göre serbest; gerekiyorsa Opus ağırlıklı, 3 tur |
 | normal | arada | Kurallara göre; en fazla 5 işçi, 3 tur |
-| tasarruf | 5 saat ≥%70, haftalık ≥%75 ya da bu hızla dönem sonu >%100 | En fazla 3 işçi, 2 tur; Opus yalnız tek çekirdek işte, gerisi Sonnet; brif az ve öz |
-| kritik | 5 saat ≥%90, haftalık ≥%90 ya da 5 saatlik hak sıfırlanmadan biter | En fazla 2 işçi, 1 tur; yalnız Sonnet; ara brif yok; işi küçült, kalanı açık uç yaz |
+| tasarruf | 5 saat ≥%70, haftalık ≥%75 ya da bu hızla dönem sonu >%100 | En fazla 3 işçi, 2 tur; Opus yalnız tek çekirdek işte, gerisi Sonnet; mekanik iş Haiku'ya; brif az ve öz |
+| kritik | 5 saat ≥%90, haftalık ≥%90 ya da 5 saatlik hak sıfırlanmadan biter | En fazla 2 işçi, 1 tur; yalnız Sonnet ve Haiku (mümkün olan her iş Haiku'ya); ara brif yok; işi küçült, kalanı açık uç yaz |
 Bütçe kodla da uygulanır: sınırı aşan üye ve Opus ataması planda kırpılır. Danışmanın kendisi her bütçede Fable'dır.
-Son kontrol her zaman danışmandadır: ekipte iş bitince (otomatik turda da, elle ya da ana oturumun verdiği işte de) danışman çıktıları dosyalardan doğrular — bitiş ölçütü sağlandı mı, diff disiplini, risk — ve "KARAR: ONAY" ya da "KARAR: RET — <neden>" ile bitirir. Kritik bütçede son kontrol hafiftir (yalnız çıktılar üzerinden).`;
+Son kontrol her zaman danışmandadır: ekipte iş bitince (otomatik turda da, elle ya da ana oturumun verdiği işte de) danışman çıktıları dosyalardan doğrular — bitiş ölçütü sağlandı mı, diff disiplini, risk — ve "KARAR: ONAY" ya da "KARAR: RET — <neden>" ile bitirir. Kritik bütçede son kontrol hafiftir (yalnız çıktılar üzerinden).
+
+## 8. Dinamik model stratejisi
+Danışman modellerin yeteneklerini Anthropic'in model sayfasından okur (haftada bir Haiku'yla tazelenir; "/ekip modeller yenile"). Her proje için proje içeriğine (dil/dosya türleri, firmware mi web mi, test altyapısı, belge yoğunluğu) ve model profiline bakarak "model stratejisi" yazar: hangi tür iş bu projede hangi modele gider, sınırda ne yapılır. Strateji planlarda, tur değerlendirmelerinde ve briflerde kuralların üstüne uygulanır; model profili değişince ya da 14 günde bir yenilenir ("/ekip strateji yenile"). Kademe kuralları (§2) ve bütçe (§7) stratejiden önce gelir.`;
 
 export const ISCI_FORMAT = `Çıktı biçimi: görev "[YOĞUN]" ile başlıyorsa en fazla 15 satır — ilk satır "ÖZET: <tek cümle>"; sonra | Dosya | Değişiklik | Doğrulama | Sonuç | tablosu (test/ölçüm yaptıysan önce/sonra sayıları); takıldıysan son satır "KARAR GEREKİR: ..." ya da "ENGEL: ...". Etiket yoksa en fazla 5 satır düz metin: değişen dosyalar ve doğrulama sonucu. Tahmin etme; emin olmadığını yaz. Görev sırasında "BRİF" başlıklı mesaj gelirse yönünü ona göre düzelt; "DUR" gelirse işi bırak ve o ana kadarını bu biçimde özetle.`;
 export const KADEME_EK = {
   [UZMAN_MODEL]: "Uzman kademedesin (Opus): know-how gerektiren çekirdek işi yürüt; kendi dosya kümen dışına çıkma, görev dışı iyileştirme yapma.",
   [HIZLI_MODEL]: "Hızlı kademedesin (Sonnet): tarif edileni yap; mimari/algoritma değiştirme, görev dışına çıkma; kararsız kalırsan dur ve \"KARAR GEREKİR: ...\" ile bitir.",
+  [HAFIF_MODEL]: "Hafif kademedesin (Haiku): mekanik işi (tarama, sınıflandırma, çıkarım, envanter, tabloya dökme) hızlı ve eksiksiz yap; kod mantığına dokunma; yorum ya da karar gerekirse dur ve \"KARAR GEREKİR: ...\" ile bitir.",
 };
 
 /** Danışmanın yazdığı model/kademe adını takma ada çevirir; tanınmayan → Opus (sınır kuralı). */
 export function modelSec(m) {
   const t = String(m ?? "").toLowerCase();
-  return /sonnet|h[ıi]zl[ıi]/.test(t) ? HIZLI_MODEL : UZMAN_MODEL;
+  return /haiku|hafif/.test(t) ? HAFIF_MODEL : /sonnet|h[ıi]zl[ıi]/.test(t) ? HIZLI_MODEL : UZMAN_MODEL;
 }
-export const kademe = model => (String(model ?? "").includes("sonnet") ? "hızlı" : String(model ?? "").includes("fable") ? "danışman" : "uzman");
+export const kademe = model => { const m = String(model ?? ""); return m.includes("haiku") ? "hafif" : m.includes("sonnet") ? "hızlı" : m.includes("fable") ? "danışman" : "uzman"; };
+
+// ── Proje profili (§8): dosya türlerinden projenin karakteri; danışmanın stratejisine girdi ──
+const TUR_UZANTI = {
+  "C/C++ firmware": [".c", ".h", ".cpp", ".hpp", ".s", ".ld", ".ioc"], "Python": [".py"], "TypeScript/JavaScript": [".ts", ".tsx", ".js", ".jsx", ".mjs"],
+  "web stil/şablon": [".css", ".scss", ".html", ".vue", ".svelte"], "belge": [".md", ".rst", ".txt", ".docx", ".pdf"],
+  "veri/log": [".csv", ".log", ".json", ".xml", ".yaml", ".yml"], "donanım (Altium/KiCad)": [".schdoc", ".pcbdoc", ".prjpcb", ".kicad_pcb", ".kicad_sch"],
+  "SQL/şema": [".sql"], "betik/derleme": [".sh", ".bat", ".ps1", ".mk", ".cmake"],
+};
+/** dosyalar: [{ yol, boyut }] (en fazla birkaç yüz) → { ozet, imza } — imza değişince strateji tazelenir. */
+export function projeProfili(dosyalar, isaretler = []) {
+  const sayac = {};
+  for (const d of dosyalar) {
+    const ext = (String(d.yol).toLowerCase().match(/\.[a-z0-9_]+$/) ?? [""])[0];
+    const tur = Object.keys(TUR_UZANTI).find(t => TUR_UZANTI[t].includes(ext));
+    if (tur) sayac[tur] = (sayac[tur] ?? 0) + 1;
+  }
+  const turler = Object.entries(sayac).sort((a, b) => b[1] - a[1]);
+  const testVar = dosyalar.some(d => /(^|[\\/])(tests?|__tests__|spec)([\\/]|$)|_test\.|\.test\.|test_/i.test(d.yol));
+  const ozet = `${turler.map(([t, n]) => `${t} ${n}`).join(", ") || "tanınan dosya yok"}; test altyapısı ${testVar ? "var" : "görünmüyor"}${isaretler.length ? `; işaretler: ${isaretler.join(", ")}` : ""}; taranan ${dosyalar.length} dosya`;
+  const imza = turler.slice(0, 4).map(([t]) => t).join("|") + (testVar ? "|test" : "") + "|" + isaretler.join(",");
+  return { ozet, imza };
+}
+/** Strateji yeniden yazılmalı mı: yok, profil daha yeni, proje karakteri değişti ya da 14 günden eski. */
+export function stratejiEskiMi(s, { profilTarih, imza, now = Date.now() }) {
+  if (!s?.metin) return true;
+  return s.profilTarih !== profilTarih || s.imza !== imza || now - (s.zaman ?? 0) > 14 * 86_400_000;
+}
+/** Danışmanın strateji JSON'u → kısa metin (planlara eklenir). */
+export function stratejiMetni(j) {
+  if (!j || typeof j !== "object") return null;
+  const k = j.kademeler ?? {};
+  const satir = (ad, v) => (Array.isArray(v) && v.length ? `- ${ad}: ${v.map(String).join("; ").slice(0, 400)}` : null);
+  const govde = [satir("Opus (uzman)", k.opus), satir("Sonnet (hızlı)", k.sonnet), satir("Haiku (hafif)", k.haiku), satir("Fable (danışmanın kendisi)", k.fable)].filter(Boolean);
+  if (!govde.length) return null;
+  return [`Özet: ${String(j.ozet ?? "").slice(0, 300)}`, ...govde, ...(j.sinir ? [`Sınırda: ${String(j.sinir).slice(0, 300)}`] : [])].join("\n");
+}
 
 /** Aynı dosyayı iki üyeye veren atamalar: [{ a, b, dosya }]. */
 export function dosyaCakismalari(uyeler) {
@@ -180,6 +237,16 @@ export function butce(limits, now = Date.now()) {
   const yaz = (ad, p) => !p ? null : `${ad} %${Math.round(p.yuzde)}${p.kalanMs != null ? ` (sıfırlanma ${sureYaz(p.kalanMs)}` : " ("}${p.sonu != null ? `, bu hızla dönem sonu ~%${p.sonu}` : ""})`;
   return { seviye, ozet: [yaz("5 saat", p5), yaz("haftalık", p7)].filter(Boolean).join(" · "), ayar: BUTCE_AYAR[seviye] };
 }
+/** Model izcisinin (Haiku) siteden çıkardığı JSON → profil; eksik/bozuksa null (varsayılan kalır). */
+export function profilDogrula(j, tarih) {
+  const m = Array.isArray(j?.modeller) ? j.modeller : [];
+  const temiz = m.map(x => ({ kademe: "", alias: String(x?.alias ?? "").toLowerCase(), id: String(x?.id ?? ""), gecikme: String(x?.gecikme ?? ""), fiyat: String(x?.fiyat ?? ""), guclu: String(x?.guclu ?? "").slice(0, 200) }))
+    .filter(x => /^claude-/.test(x.id) && x.alias);
+  if (!["fable", "opus", "sonnet", "haiku"].every(a => temiz.some(x => x.alias === a))) return null;
+  const KAD = { fable: "danışman", opus: "uzman", sonnet: "hızlı", haiku: "hafif" };
+  return { kaynak: String(j.kaynak ?? MODEL_PROFILI_VARSAYILAN.kaynak), tarih, modeller: temiz.filter(x => KAD[x.alias]).map(x => ({ ...x, kademe: KAD[x.alias] })) };
+}
+
 /** Bütçeyi plana uygular: fazla üye atılır, Opus sınırı aşan atamalar Sonnet'e iner (ilk Opus çekirdek kalır). */
 export function butceUygula(uyeler, ayar) {
   let opus = 0;

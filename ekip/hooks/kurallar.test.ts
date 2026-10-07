@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { ESIK, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, KURALLAR, butce, butceUygula, pencere, BUTCE_AYAR } from './kurallar.mjs'
+import { ESIK, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, KURALLAR, butce, butceUygula, pencere, BUTCE_AYAR, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula, MODEL_PROFILI_VARSAYILAN, profilMetni } from './kurallar.mjs'
 
 test('kademe seçimi: sonnet/hızlı → Sonnet, gerisi (sınır kuralı) → Opus', () => {
   expect(modelSec('sonnet')).toBe('sonnet')
@@ -74,7 +74,7 @@ test('üye tablosu telemetriden: kademe, durum, bayrak, brif sayısı', () => {
 })
 
 test('kural metni altı bölümü taşır', () => {
-  for (const b of ['Hiyerarşi', 'Model atama', 'Yoğun iş', 'Rapor', 'Ara brif', 'Genel', 'Kota bütçesi']) expect(KURALLAR).toMatch(new RegExp(`## \\d\\. ${b}`))
+  for (const b of ['Hiyerarşi', 'Model atama', 'Yoğun iş', 'Rapor', 'Ara brif', 'Genel', 'Kota bütçesi', 'Dinamik model stratejisi']) expect(KURALLAR).toMatch(new RegExp(`## \\d\\. ${b}`))
 })
 
 test('kota bütçesi: 5 saatlik hak ve haftalık tempo seviyeyi belirler', () => {
@@ -101,4 +101,49 @@ test('bütçe plana uygulanır: fazla üye atılır, Opus sınırı aşanlar Son
   expect(t.map((x: any) => [x.name, x.model, Boolean(x.inen)])).toEqual([['a', 'opus', false], ['b', 'sonnet', true], ['c', 'sonnet', false]])
   expect(butceUygula(u, BUTCE_AYAR.kritik).map((x: any) => x.model)).toEqual(['sonnet', 'sonnet'])
   expect(butceUygula(u, BUTCE_AYAR.bol).length).toBe(4)
+})
+
+test('Haiku kademesi: hafif/haiku → haiku; kademe adı hafif', () => {
+  expect(modelSec('haiku')).toBe('haiku')
+  expect(modelSec('Hafif')).toBe('haiku')
+  expect(kademe('claude-haiku-5-5')).toBe('hafif')
+  expect(KURALLAR).toMatch(/\| Hafif \| Haiku \|/)
+})
+
+test('proje profili: dosya türleri, test altyapısı ve işaretler; imza karakter değişince değişir', () => {
+  const fw = projeProfili([{ yol: 'Core/main.c' }, { yol: 'Core/adc.h' }, { yol: 'Proje.ioc' }, { yol: 'README.md' }], ['firmware (CubeMX/PlatformIO)'])
+  expect(fw.ozet).toMatch(/^C\/C\+\+ firmware 3, belge 1; test altyapısı görünmüyor; işaretler: firmware/)
+  const web = projeProfili([{ yol: 'backend/app.py' }, { yol: 'backend/tests/test_api.py' }, { yol: 'frontend/App.tsx' }, { yol: 'frontend/x.tsx' }])
+  expect(web.ozet).toMatch(/Python 2, TypeScript\/JavaScript 2; test altyapısı var/)
+  expect(fw.imza).not.toBe(web.imza)
+  expect(projeProfili([]).ozet).toMatch(/tanınan dosya yok/)
+})
+
+test('strateji: yoksa, profil ya da proje karakteri değişince ya da 14 günde bir yeniden yazılır', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z')
+  const s = { metin: 'x', profilTarih: '2026-10-07', imza: 'A', zaman: now - 86_400_000 }
+  expect(stratejiEskiMi(null, { profilTarih: '2026-10-07', imza: 'A', now })).toBe(true)
+  expect(stratejiEskiMi(s, { profilTarih: '2026-10-07', imza: 'A', now })).toBe(false)
+  expect(stratejiEskiMi(s, { profilTarih: '2026-10-14', imza: 'A', now })).toBe(true)
+  expect(stratejiEskiMi(s, { profilTarih: '2026-10-07', imza: 'B', now })).toBe(true)
+  expect(stratejiEskiMi(s, { profilTarih: '2026-10-07', imza: 'A', now: now + 15 * 86_400_000 })).toBe(true)
+  const m = stratejiMetni({ ozet: 'firmware ağırlıklı', kademeler: { opus: ['DMA/kesme hatası'], sonnet: ['HAL çağrısı ekleme'], haiku: ['derleme uyarısı envanteri'] }, sinir: 'tereddütte Opus' })
+  expect(m).toBe('Özet: firmware ağırlıklı\n- Opus (uzman): DMA/kesme hatası\n- Sonnet (hızlı): HAL çağrısı ekleme\n- Haiku (hafif): derleme uyarısı envanteri\nSınırda: tereddütte Opus')
+  expect(stratejiMetni({ ad: 'plan JSON' })).toBeNull()
+})
+
+test('siteden model profili: dört aile şart, kademe adları eklenir; varsayılan profilde Haiku 5.5', () => {
+  const j = { kaynak: 'platform.claude.com', modeller: [
+    { alias: 'fable', id: 'claude-fable-5-1', gecikme: 'yavaş', fiyat: '$10 / $50', guclu: 'akıl yürütme' },
+    { alias: 'opus', id: 'claude-opus-5-5', gecikme: 'orta', fiyat: '$4 / $20', guclu: 'kodlama' },
+    { alias: 'sonnet', id: 'claude-sonnet-5-5', gecikme: 'hızlı', fiyat: '$2 / $10', guclu: 'denge' },
+    { alias: 'haiku', id: 'claude-haiku-5-5', gecikme: 'en hızlı', fiyat: '$0.10 / $0.50', guclu: 'sınıflandırma' },
+  ] }
+  const p: any = profilDogrula(j, '2026-10-14')
+  expect(p.tarih).toBe('2026-10-14')
+  expect(p.modeller.map((m: any) => m.kademe)).toEqual(['danışman', 'uzman', 'hızlı', 'hafif'])
+  expect(profilDogrula({ modeller: j.modeller.slice(0, 3) }, 'x')).toBeNull()          // haiku eksik: kabul edilmez
+  expect(profilDogrula({ modeller: [{ alias: 'opus', id: 'kötü' }] }, 'x')).toBeNull()
+  expect(MODEL_PROFILI_VARSAYILAN.modeller.find(m => m.alias === 'haiku')?.id).toBe('claude-haiku-5-5')
+  expect(profilMetni(MODEL_PROFILI_VARSAYILAN)).toMatch(/hafif: haiku \(claude-haiku-5-5\) · en hızlı/)
 })
