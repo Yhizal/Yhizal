@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi } from './ekip.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -35,7 +35,7 @@ test('oturum açılınca aktif ekibin üyeleri kaydedilir; ekip dışı tip gizl
   on('session.start', (_$: unknown, e: any) => e as never)
   on('agent.offer', () => ({ isOffered: true }) as never)
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
-  expect(kayit).toEqual(['danisman', 'arayuz-gelistirici', 'dokumantasyoncu'])
+  expect(kayit).toEqual(['danisman', 'arayuz-gelistirici', 'dokumantasyoncu', 'hizli-isci'])
   const ic: any = await $.agent.offer({ agent: 'ekip:dokumantasyoncu', description: '', source: 'plugin', provider: {} } as never)
   const dis: any = await $.agent.offer({ agent: 'ekip:firmware-analist', description: '', source: 'plugin', provider: {} } as never)
   expect(ic.isOffered).toBe(true)
@@ -90,10 +90,16 @@ test('proje türü: .ioc / platformio / Core+Drivers firmware, gerisi yazılım'
   expect(SABLON_EKIPLER.some(e => e.ad === VARSAYILAN_EKIP.yazilim)).toBe(true)
 })
 
-test('modeller takma adla: danışman en güncel Fable, işçiler en güncel Opus', () => {
+test('üç kademe takma adla: danışman Fable, uzman Opus, hızlı Sonnet; işçi talimatında kademe ve biçim', () => {
   expect(DANISMAN_MODEL).toBe('fable')
   expect(ISCI_MODEL).toBe('opus')
-  for (const [ad, r] of Object.entries(ROLLER)) if (ad !== 'danisman') expect((r as any).model).toBe('opus')
+  const hizli = ['test-yazici', 'dokumantasyoncu', 'hizli-isci']
+  for (const [ad, r] of Object.entries(ROLLER)) if (ad !== 'danisman') {
+    expect((r as any).model).toBe(hizli.includes(ad) ? 'sonnet' : 'opus')
+    expect((r as any).prompt).toMatch(hizli.includes(ad) ? /Hızlı kademedesin/ : /Uzman kademedesin/)
+    expect((r as any).prompt).toMatch(/ÖZET: <tek cümle>/)
+  }
+  expect(ROLLER.danisman.prompt).toMatch(/EKİP KURALLARI v2/)
 })
 
 test('Fable planı: JSON ayıklanır, ad temizlenir, izinsiz araç ve fazla üye atılır', () => {
@@ -178,7 +184,7 @@ test('/ekip kur (otomatik): Fable planı onay beklemeden başlar, her üye göre
   expect(reg).toEqual(expect.arrayContaining(['surucu', 'testci']))
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:surucu', 'ekip:testci'])
   expect(spawned[0].prompt).toBe('uart_dma.c yaz')
-  expect(await ui.find({ type: 'Text', text: /Fable atıyor, Opus yürütüyor/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Fable yönetir · Opus uzman · Sonnet hızlı · basit iş/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -213,4 +219,58 @@ test('sade mod: hiçbir yüzeyde sahne/şerit yok, saat ilerleyince blit de yeni
   }
   await saat.advance(3000)
   expect(blitler).toHaveLength(0)
+})
+
+test('yoğun iş: kademeli model ataması, bağımlı üye sırası, ara brif kararı ve tablolu son rapor', async ($, on) => {
+  mock.clock(on)
+  mock.store(on, {})
+  const toasts: string[] = []
+  on('ui.toast', (_$: unknown, e: any) => (toasts.push(String(e.text)), { value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  const sistemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    const s = String(e.system)
+    sistemler.push(/ekip kurucu/.test(s) ? 'kur' : /ara brif/.test(s) ? 'brif' : 'deger')
+    const text = /ekip kurucu/.test(s) ? JSON.stringify({ ad: 'ADC Ekibi', amac: 'kalibrasyon', yogunluk: 'yogun', uyeler: [
+        { ad: 'cekirdek', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'adc.c kalibrasyonu', bitis_olcutu: 'make test', dosyalar: ['adc.c'], beklenen_sure_dk: 10 },
+        { ad: 'belgeci', model: 'sonnet', araclar: ['Read', 'Write'], gorev: 'README güncelle', bitis_olcutu: 'grep ADC README.md', dosyalar: ['README.md'] },
+        { ad: 'testci', model: 'sonnet', araclar: ['Read', 'Edit', 'Bash'], gorev: 'test case ekle', bitis_olcutu: 'make test', dosyalar: ['test_adc.c'], bagimli: 'cekirdek' },
+      ] })
+      : /ara brif/.test(s) ? JSON.stringify({ brif: true, hedef_uye: 'cekirdek', tetikleyici: 'T3', eylem: 'yon', neden: 'belgeci karar istiyor' })
+      : JSON.stringify({ degerlendirme: '**Sonuç** kalibrasyon bitti.\n\nKarar: bitir — hedef tamam', bitti: true })
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model, agentId: `a${spawned.length}` }) as never)
+  const gonderilen: any[] = []
+  on('session.send', (_$: unknown, e: any) => (gonderilen.push(e), { value: {} }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'kur ADC kalibrasyonu', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 50))
+  // Bağımlı testci beklemede; diğerleri kendi kademesinde ve [YOĞUN] etiketiyle başladı.
+  expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:cekirdek', 'opus'], ['ekip:belgeci', 'sonnet']])
+  expect(spawned[0].prompt).toMatch(/^\[YOĞUN\] adc\.c kalibrasyonu\nBitiş ölçütü: make test/)
+  expect(toasts.some(t => /2 Sonnet · yoğun iş/.test(t))).toBe(true)
+  expect(sistemler).toEqual(['kur'])
+})
+
+test('tur adımı: biten üye bağımlıyı açar (çıktısıyla), yoğun işte süren varsa T1/T3 brif tetiklenir', () => {
+  const tur: any = { no: 1, durum: 'calisiyor', yogun: true, bekleyen: [{ uye: 'testci', gorev: 'test ekle', model: 'sonnet', bagimli: 'cekirdek' }] }
+  const k: any[] = [
+    { id: 'a1', tip: 'ekip:cekirdek', tur: 1, durum: 'bitti', cikti: 'ÖZET: tamam' },
+    { id: 'a2', tip: 'ekip:belgeci', tur: 1, durum: 'calisiyor' },
+  ]
+  const a = turAdimi(tur, k, k[0], 'cekirdek')
+  expect(a.acilan.map((x: any) => [x.uye, x.model])).toEqual([['testci', 'sonnet']])
+  expect(a.acilan[0].gorev).toMatch(/^test ekle\n\ncekirdek çıktısı:\nÖZET: tamam/)
+  expect(a.bekleyen).toEqual([])
+  expect(a.tetik).toBe('T1')
+  expect(turAdimi(tur, k, { ...k[0], cikti: 'KARAR GEREKİR: baud?' }, 'cekirdek').tetik).toBe('T3')
+  expect(turAdimi({ ...tur, yogun: false }, k, k[0], 'cekirdek').tetik).toBeNull()      // basit işte brif yok
+  expect(turAdimi(tur, [k[0]], k[0], 'cekirdek').tetik).toBeNull()                     // süren yoksa brif yok, tur değerlendirilir
+  expect(turAdimi({ ...tur, no: 2 }, k, k[0], 'cekirdek').acilan).toEqual([])           // eski turun çıktısı yeni turu etkilemez
 })

@@ -1,5 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
+import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni } from "./kurallar.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -12,13 +13,16 @@ const INCELEME = { plugin: "ekip", key: "incelemeId" };
 const TASLAK = { plugin: "ekip", key: "taslak" };
 const TUR = { plugin: "ekip", key: "tur" };
 const ADIM_BELLEK = { plugin: "ekip", key: "adimBellek" };
+const BRIFLER = { plugin: "ekip", key: "brifler" }; // bu turun ara brifleri: [{ no, uye, eylem, tetik, neden, zaman }]
 const ORNEK_MAX = 40;
 const PANE = "ekip";
 
 // Takma adlar Claude Code tarafından her zaman ailenin en güncel sürümüne çözülür:
 // yeni Fable/Opus çıkınca mod değişmeden onlara geçer.
+// Üç kademe (kurallar.mjs, v0.9.0): Fable danışman, Opus uzman, Sonnet hızlı.
 export const DANISMAN_MODEL = "fable";
-export const ISCI_MODEL = "opus";
+export const ISCI_MODEL = UZMAN_MODEL;
+export { HIZLI_MODEL };
 export const DANISMAN_ADAYLAR = ["fable", "claude-fable-5-1", "opus"];
 const MAX_TUR = 3; // Fable'ın kendi kendine atama turu üst sınırı (kota koruması)
 const MAX_UYE = 5;
@@ -30,7 +34,7 @@ export const ROLLER = {
   danisman: {
     rol: "danisman", model: DANISMAN_MODEL, effort: "high",
     description: "Ekip danışmanı: mimari kararlar, plan, risk analizi ve ekip çıktılarının gözden geçirilmesi (STM32/HAL, Altium, ThingsBoard). Tasarım kararı gerektiğinde çağır.",
-    prompt: "Sen gömülü sistemler ve yazılım mimarisi danışmanısın; ekibin lideri gibi düşün. Önce 3 maddelik özet, sonra gerekçe, sonra riskler ve sıradaki adımlar. Kod yazma; karar ver, görev dağıt, çıktıları denetle. Türkçe yaz.",
+    prompt: `Sen gömülü sistemler ve yazılım mimarisi danışmanısın; ekibin lideri gibi düşün. Önce 3 maddelik özet, sonra gerekçe, sonra riskler ve sıradaki adımlar. Kod yazma; karar ver, görev dağıt, çıktıları denetle. Türkçe yaz.\n\n${KURALLAR}`,
     tools: ["Read", "Grep", "Glob"],
   },
   "firmware-analist": {
@@ -40,7 +44,7 @@ export const ROLLER = {
     tools: ["Read", "Grep", "Glob"],
   },
   "test-yazici": {
-    rol: "isci", model: ISCI_MODEL, maxTurns: 30, permissionMode: "acceptEdits",
+    rol: "isci", model: HIZLI_MODEL, maxTurns: 30, permissionMode: "acceptEdits",
     description: "Verilen modül için birim test yazar, çalıştırır ve sonucu özetler.",
     prompt: "Verilen modül için projenin test çerçevesiyle (Unity/CMocka/pytest...) birim test yaz, çalıştır, sonucu özetle. Mevcut testleri kırma; mevcut dosyada yalnız değişen bloğu düzenle. Türkçe özetle.",
     tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
@@ -58,18 +62,26 @@ export const ROLLER = {
     tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
   },
   dokumantasyoncu: {
-    rol: "isci", model: ISCI_MODEL, maxTurns: 10,
+    rol: "isci", model: HIZLI_MODEL, maxTurns: 10,
     description: "README, Doxygen başlıkları ve modül dokümantasyonu üretir.",
     prompt: "Modül/README/Doxygen dokümantasyonu üret; projenin mevcut tarzını koru; kısa ve net yaz.",
     tools: ["Read", "Grep", "Glob", "Write"],
   },
+  "hizli-isci": {
+    rol: "isci", model: HIZLI_MODEL, maxTurns: 20, permissionMode: "acceptEdits",
+    description: "Tarifi net, doğrulaması belli, alan bilgisi gerektirmeyen hızlı işler (≤3 dosya): mevcut desenle ekleme, format, tarama, özetleme.",
+    prompt: "Verilen dar kapsamlı işi tarif edildiği gibi yap; mevcut deseni izle; mevcut dosyada yalnız değişen bloğu düzenle; bitiş ölçütünü çalıştırıp sonucu bildir.",
+    tools: ["Read", "Grep", "Glob", "Edit", "Bash"],
+  },
 };
+// Her işçinin talimatına kademe sınırı ve çıktı biçimi eklenir (kurallar.mjs §1, §4).
+for (const r of Object.values(ROLLER)) if (r.rol === "isci") r.prompt += `\n\n${KADEME_EK[r.model]}\n${ISCI_FORMAT}`;
 
 export const SABLON_EKIPLER = [
-  { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici"] },
-  { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu"] },
+  { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici", "hizli-isci"] },
+  { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu", "hizli-isci"] },
   // Firmware olmayan projelerin öntanımlısı (ör. AR-GE Takip Platformu: FastAPI + React).
-  { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu"] },
+  { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu", "hizli-isci"] },
 ];
 
 // OTOMATİK MOD (v0.8.0, 7 Eki 2026 — kullanıcı: "müdahale etmek istemiyorum, Fable yönetsin"):
@@ -228,21 +240,30 @@ export function planDogrula(j) {
     if (!name || goruldu.has(name) || !u.gorev) continue;
     goruldu.add(name);
     const tools = (Array.isArray(u.araclar) ? u.araclar : ["Read", "Grep", "Glob"]).filter(t => ARAC_IZINLI.includes(t));
+    const model = modelSec(u.model); // danışmanın kademe kararı; tanınmayan → Opus
     uyeler.push({
-      name, rol: "isci", model: ISCI_MODEL, maxTurns: 30,
+      name, rol: "isci", model, maxTurns: 30,
       description: tek(u.aciklama || u.ad, 150),
-      prompt: `${tek(u.talimat || u.aciklama || "", 1500)}\n\nMevcut dosyada yalnız değişen bloğu düzenle. Sonunda Türkçe kısa özet ver.`,
+      prompt: `${tek(u.talimat || u.aciklama || "", 1500)}\n\nMevcut dosyada yalnız değişen bloğu düzenle.\n${KADEME_EK[model]}\n${ISCI_FORMAT}`,
       tools: tools.length ? tools : ["Read", "Grep", "Glob"],
       ...(tools.some(t => t === "Edit" || t === "Write") ? { permissionMode: "acceptEdits" } : {}),
-      gorev: tek(u.gorev, 1500),
+      gorev: tek(u.gorev, 1500) + (u.bitis_olcutu ? `\nBitiş ölçütü: ${tek(u.bitis_olcutu, 300)}` : ""),
+      dosyalar: Array.isArray(u.dosyalar) ? u.dosyalar.map(String).slice(0, 20) : [],
+      beklenenDk: Number(u.beklenen_sure_dk) > 0 ? Number(u.beklenen_sure_dk) : 0,
+      bagimli: u.bagimli ? adTemizle(u.bagimli) : "",
     });
   }
-  return uyeler.length ? { ad: tek(j.ad || "Fable ekibi", 40), amac: tek(j.amac || "", 120), uyeler } : null;
+  if (!uyeler.length) return null;
+  // Bağımlılık yalnız plandaki başka bir üyeye olabilir (yoksa paralel başlar).
+  for (const u of uyeler) if (u.bagimli === u.name || !uyeler.some(x => x.name === u.bagimli)) u.bagimli = "";
+  const dosyaSayisi = new Set(uyeler.flatMap(u => u.dosyalar)).size;
+  const yogun = yogunMu({ yogunluk: j.yogunluk, uyeSayisi: uyeler.length, dosyaSayisi, maxSureDk: Math.max(0, ...uyeler.map(u => u.beklenenDk)), turPlani: Number(j.tur_plani) || 1 });
+  return { ad: tek(j.ad || "Fable ekibi", 40), amac: tek(j.amac || "", 120), uyeler, yogun, cakisma: dosyaCakismalari(uyeler) };
 }
 export function atamalar(j, ekip) {
   if (!j || !Array.isArray(j.sonraki)) return [];
   return j.sonraki
-    .map(a => ({ uye: adTemizle(a?.uye), gorev: tek(a?.gorev, 1500) }))
+    .map(a => ({ uye: adTemizle(a?.uye), gorev: tek(a?.gorev, 1500) + (a?.bitis_olcutu ? `\nBitiş ölçütü: ${tek(a.bitis_olcutu, 300)}` : ""), ...(a?.model ? { model: modelSec(a.model) } : {}) }))
     .filter(a => a.gorev && a.uye !== "danisman" && ekip.uyeler.includes(a.uye))
     .slice(0, MAX_UYE);
 }
@@ -261,10 +282,12 @@ export function incelemePrompt(ekip, kosular) {
 async function ekipler($) {
   const kayit = await $.store.get("ekipler");
   if (Array.isArray(kayit) && kayit.length) {
-    // Sonradan eklenen şablonlar (ör. Yazılım ekibi) eski kayıtlara da girsin.
+    // Sonradan eklenen şablonlar (ör. Yazılım ekibi) ve şablon üyeleri (ör. hizli-isci) eski kayıtlara da girsin.
     const eksik = SABLON_EKIPLER.filter(s => !kayit.some(x => x.ad === s.ad));
-    if (!eksik.length) return kayit;
-    const tam = [...kayit, ...eksik];
+    const uyeEksik = s => s && s.uyeler.some(u => !kayit.find(x => x.ad === s.ad)?.uyeler.includes(u));
+    if (!eksik.length && !SABLON_EKIPLER.some(uyeEksik)) return kayit;
+    const tam = [...kayit.map(x => { const s = SABLON_EKIPLER.find(y => y.ad === x.ad);
+      return s ? { ...x, uyeler: [...x.uyeler, ...s.uyeler.filter(u => !x.uyeler.includes(u))] } : x; }), ...eksik];
     await $.store.set("ekipler", tam);
     return tam;
   }
@@ -383,17 +406,36 @@ async function sor($, soru) {
 }
 
 const KULLANICI = "Kullanıcı EMELEC AR-GE'de; donanım (STM32/HAL, Altium, ThingsBoard) ve AR-GE Takip Platformu (FastAPI + React, SharePoint köprüsü) üzerinde çalışır. Türkçe, kısa ve tablolu rapor ister; ekibe müdahale etmek istemez — kararları sen (Fable) ver. Token tasarrufu ve diff disiplini önemli.";
-const KUR_SISTEM = `Sen ekip kurucu danışmansın. Kullanıcının hedefine göre en fazla ${MAX_UYE} işçi ajanlı bir ekip tasarla ve her üyeye ilk somut görevini ata. İşçiler en güncel Opus ile çalışır; sen ekibin danışmanısın. Paralel çalışacakları için aynı dosyayı iki üyeye verme. ${KULLANICI}
+const KUR_SISTEM = `Sen ekip kurucu danışmansın. Kullanıcının hedefine göre en fazla ${MAX_UYE} işçi ajanlı bir ekip tasarla, işi kurallara göre çekirdek (Opus) + hızlı (Sonnet) parçalara böl ve her üyeye ilk somut görevini ata. ${KULLANICI}
+
+${KURALLAR}
+
 Yalnız JSON döndür, başka metin yazma:
-{"ad":"Ekip adı","amac":"tek cümle","uyeler":[{"ad":"kisa-ad","aciklama":"ne zaman çağrılır","talimat":"üyenin kalıcı sistem talimatı","araclar":["Read","Grep","Glob","Edit","Write","Bash","WebFetch","WebSearch" içinden gerekenler],"gorev":"ilk görev, somut ve doğrulanabilir"}]}`;
-const DEGER_SISTEM = `Sen ekibin danışmanısın. İşçilerin bu turdaki çıktılarını değerlendir; hedef tamamlanmadıysa sıradaki görevleri ata. ${KULLANICI}
-Yalnız JSON döndür: {"degerlendirme":"kısa markdown: ne bitti, ne riskli","bitti":true|false,"sonraki":[{"uye":"üye adı","gorev":"somut görev"}]}`;
+{"ad":"Ekip adı","amac":"tek cümle","yogunluk":"basit|yogun","tur_plani":1,"uyeler":[{"ad":"kisa-ad","model":"opus|sonnet","aciklama":"ne zaman çağrılır","talimat":"üyenin kalıcı sistem talimatı","araclar":["Read","Grep","Glob","Edit","Write","Bash","WebFetch","WebSearch" içinden gerekenler],"gorev":"ilk görev: tam dosya yolu ve blok","bitis_olcutu":"doğrulama komutu/ölçütü (boş olamaz)","dosyalar":["değişecek dosyalar"],"beklenen_sure_dk":5,"bagimli":"önce bitmesi gereken üye adı ya da boş"}]}`;
+const DEGER_SISTEM = `Sen ekibin danışmanısın. İşçilerin bu turdaki çıktılarını değerlendir; hedef tamamlanmadıysa sıradaki görevleri ata ve her görevin modelini kurallara göre seç. ${KULLANICI}
+
+${KURALLAR}
+
+"degerlendirme" alanı: iş yoğunsa §4'teki yoğun rapor (Sonuç, Karşılaştırma tablosu, Bulgular, Açık uçlar; üye tablosunu YAZMA, telemetriden eklenir), basitse ≤5 satır düz metin. Son satır: "Karar: devam|bitir — <tek satır gerekçe>".
+Yalnız JSON döndür: {"degerlendirme":"markdown","bitti":true|false,"yogunluk":"basit|yogun","sonraki":[{"uye":"üye adı","model":"opus|sonnet","gorev":"somut görev","bitis_olcutu":"..."}]}`;
+const BRIF_SISTEM = `Sen ekibin danışmanısın; iş sürerken ara brif kararı veriyorsun (§5). Tetikleyici gerçekten yönü etkilemiyorsa brif verme: {"brif":false}. Verirsen tek üyeye, ≤6 satırlık içerikle. ${KULLANICI}
+
+${KURALLAR}
+
+Yalnız JSON döndür: {"brif":true,"hedef_uye":"koşan üye adı","tetikleyici":"T1|T2|T3|T4","eylem":"yon|durdur|yeniden_ata","neden":"...","yeni_hedef":"...","dokunma":["yol"],"bitis_olcutu":"...","yeni_model":"opus|sonnet (yalnız yeniden_ata)","yeni_gorev":"(yalnız yeniden_ata)"}`;
 
 async function kur($, hedef) {
   await $.state.set(TASLAK, { durum: "hazirlaniyor", hedef });
   cark($);
-  const r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}`, maxTokens: 3000, timeoutMs: 180_000 });
-  const taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
+  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}`, maxTokens: 3500, timeoutMs: 180_000 });
+  let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
+  // Aynı dosya iki üyede: plan bir kez danışmana geri verilir (§2 bölme kuralı).
+  if (taslak?.cakisma.length) {
+    const not = taslak.cakisma.map(c => `${c.dosya}: ${c.a} ve ${c.b}`).join("; ");
+    const r2 = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\nÖnceki planında aynı dosya iki üyeye verilmiş (${not}). Dosyayı tek üyeye ver, öbürü salt okusun ya da bagimli olsun; planı yeniden yaz.`, maxTokens: 3500, timeoutMs: 180_000 });
+    const t2 = r2.isAnswered ? planDogrula(jsonAl(r2.text)) : null;
+    if (t2) { taslak = t2; r = r2; }
+  }
   await $.state.set(TASLAK, taslak
     ? { durum: "hazir", hedef, ...taslak, ...notu(r) }
     : { durum: "hata", hedef, hata: r.isAnswered ? "Fable'ın planı okunamadı; hedefi biraz daha somut yaz." : `Fable'a ulaşılamadı: ${r.reason}` });
@@ -407,14 +449,92 @@ async function onayla($) {
   const liste = await ekipler($);
   let ad = taslak.ad;
   for (let n = 2; liste.some(x => x.ad === ad); n++) ad = `${taslak.ad} ${n}`;
-  const ozel = Object.fromEntries(taslak.uyeler.map(({ gorev, ...u }) => [u.name, u]));
+  const ozel = Object.fromEntries(taslak.uyeler.map(({ gorev, dosyalar, beklenenDk, bagimli, ...u }) => [u.name, u]));
   const ekip = { ad, amac: taslak.amac, hedef: taslak.hedef, oto: true, uyeler: ["danisman", ...taslak.uyeler.map(u => u.name)], ozel };
   await kaydet($, [...liste, ekip]);
   await yukle($, ad);
   await $.state.set(TASLAK, null);
-  await $.state.set(TUR, { no: 1, durum: "calisiyor" });
-  for (const u of taslak.uyeler) await baslat($, u.name, u.gorev, 1);
-  $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı`);
+  await $.state.set(BRIFLER, []);
+  // Bağımlı üyeler, bağlı oldukları üye bitince başlar (turn.complete).
+  const bekleyen = taslak.uyeler.filter(u => u.bagimli).map(u => ({ uye: u.name, gorev: u.gorev, model: u.model, beklenenDk: u.beklenenDk, bagimli: u.bagimli }));
+  await $.state.set(TUR, { no: 1, durum: "calisiyor", yogun: Boolean(taslak.yogun), bekleyen });
+  for (const u of taslak.uyeler.filter(u => !u.bagimli)) await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun });
+  if (taslak.yogun) izlemeyiBaslat($);
+  const sonnet = taslak.uyeler.filter(u => u.model === HIZLI_MODEL).length;
+  $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı (${taslak.uyeler.length - sonnet} Opus, ${sonnet} Sonnet${taslak.yogun ? " · yoğun iş: ara brif + tablolu rapor" : ""})`);
+}
+
+// ── Ara brif (§5): yalnız yoğun işte; T1 üye bitti/diğerleri sürüyor, T2 süre/adım aşımı, T3 bayrak ──
+let izleme = null;
+const t2Gidenler = new Set(); // "tur:uye"
+function izlemeyiBaslat($) {
+  if (izleme) return;
+  izleme = $.clock.every(ESIK.IZLEME_MS, async () => {
+    const { value: tur = null } = await $.state.get(TUR);
+    if (!tur?.yogun || tur.durum !== "calisiyor") { izleme?.cancel?.(); izleme = null; return; }
+    const { value: k = [] } = await $.state.get(KOSULAR);
+    const { value: br = [] } = await $.state.get(BRIFLER);
+    for (const kosu of k.filter(x => x.tur === tur.no && x.durum === "calisiyor")) {
+      const uye = kosu.tip.slice(P.length + 1);
+      if (t2Mi(kosu, { brifSayisi: br.filter(b => b.uye === uye).length, t2Gitti: t2Gidenler.has(`${tur.no}:${uye}`) })) {
+        t2Gidenler.add(`${tur.no}:${uye}`);
+        await araBrif($, "T2", kosu);
+        return; // bir dakikada en fazla bir brif
+      }
+    }
+  });
+}
+
+export async function araBrif($, tetik, kaynak) {
+  const { value: tur = null } = await $.state.get(TUR);
+  if (!tur?.yogun || tur.durum !== "calisiyor") return;
+  const { value: br = [] } = await $.state.get(BRIFLER);
+  if (br.length >= ESIK.BRIF_MAX_TUR) return;
+  const { value: k = [] } = await $.state.get(KOSULAR);
+  const kosan = k.filter(x => x.tur === tur.no && x.durum === "calisiyor");
+  if (!kosan.length) return;
+  const ad = x => x.tip.slice(P.length + 1);
+  const durumlar = kosan.map(x => `- ${ad(x)} (${kademe(x.model)}, ${x.adim ?? 0} adım, ${sure(Date.now() - x.baslangic)}${x.beklenenDk ? ` / beklenen ${x.beklenenDk} dk` : ""}): ${x.aciklama}`).join("\n");
+  const son15 = String(kaynak?.cikti ?? "").split("\n").slice(-15).join("\n");
+  const r = await fable($, {
+    system: BRIF_SISTEM, maxTokens: 800, timeoutMs: 90_000,
+    prompt: `Tetikleyici: ${tetik}${kaynak ? ` — kaynak üye ${ad(kaynak)} (${kaynak.durum})` : ""}. Tur ${tur.no}.\n\nKoşan üyeler:\n${durumlar}\n\n` +
+      (son15 ? `Kaynak üyenin son çıktısı:\n${son15}\n\n` : "") +
+      (br.length ? `Bu turdaki önceki brifler:\n${br.map(b => `#${b.no} → ${b.uye} (${b.eylem}): ${b.neden}`).join("\n")}` : "Bu turda henüz brif yok."),
+  });
+  const b = r.isAnswered ? brifDogrula(jsonAl(r.text), kosan.map(ad)) : null;
+  if (!b) return;
+  const hedef = kosan.find(x => ad(x) === b.uye);
+  const oncekiler = br.filter(x => x.uye === b.uye);
+  if (!brifIzinli(hedef, tetik, { brifSayisi: oncekiler.length })) return;
+  if (b.eylem === "yeniden_ata" && oncekiler.filter(x => x.eylem === "yeniden_ata").length >= ESIK.YENIDEN_ATA_MAX) b.eylem = "durdur";
+  const no = br.length + 1;
+  const g = await $.session.send({ to: { agentId: hedef.id }, text: brifMetni(no, b) });
+  if (g?.deny) { $.ui.toast(`ekip: brif #${no} ${b.uye}'e gitmedi — ${String(g.deny).slice(0, 60)}`); return; }
+  await $.state.set(BRIFLER, [...br, { no, uye: b.uye, eylem: b.eylem, tetik, neden: b.neden, zaman: Date.now() }]);
+  if (b.eylem === "yeniden_ata") await baslat($, b.uye, b.yeniGorev, tur.no, { model: b.yeniModel, yogun: true });
+  $.ui.toast(`◆ Brif #${no} → ${b.uye} (${b.eylem === "yon" ? "yön" : b.eylem === "durdur" ? "durdur" : `yeniden ata: ${kademe(b.yeniModel)}`}): ${tek(b.neden, 60)}`);
+}
+
+// Bir üye bitince: ona bağlı bekleyenler başlar; yoğun işte diğerleri sürüyorsa danışman ara brif
+// kararı verir (T3 bayrak, yoksa T1); hiçbiri kalmadıysa tur değerlendirmesi.
+/** Biten üyeden sonra ne olur (saf): açılan bağımlılar, kalan bekleyenler, ara brif tetikleyicisi. */
+export function turAdimi(tur, kosular, kosu, ad) {
+  if (tur?.no !== kosu.tur || tur.durum !== "calisiyor") return { acilan: [], bekleyen: tur?.bekleyen ?? [], tetik: null };
+  const acilan = (tur.bekleyen ?? []).filter(b => b.bagimli === ad).map(b => ({ ...b, gorev: `${b.gorev}\n\n${ad} çıktısı:\n${tek(kosu.cikti, 1200)}` }));
+  const surenVar = kosular.some(x => x.tur === tur.no && x.durum === "calisiyor" && x.id !== kosu.id);
+  return { acilan, bekleyen: (tur.bekleyen ?? []).filter(b => b.bagimli !== ad), tetik: tur.yogun && surenVar ? (bayrak(kosu.cikti) ? "T3" : "T1") : null };
+}
+async function turIlerle($, kosu, ad) {
+  const { value: tur = null } = await $.state.get(TUR);
+  const { value: k = [] } = await $.state.get(KOSULAR);
+  const a = turAdimi(tur, k, kosu, ad);
+  if (a.acilan.length) {
+    await $.state.set(TUR, { ...tur, bekleyen: a.bekleyen });
+    for (const b of a.acilan) await baslat($, b.uye, b.gorev, tur.no, { model: b.model, beklenenDk: b.beklenenDk, yogun: tur.yogun });
+  }
+  if (a.tetik) await araBrif($, a.tetik, kosu);
+  await turBitti($, kosu.tur);
 }
 
 // Tur bitince Fable çıktıları değerlendirir ve sıradaki görevleri kendisi atar.
@@ -422,49 +542,61 @@ async function turBitti($, no) {
   const { value: k = [] } = await $.state.get(KOSULAR);
   const { value: tur = null } = await $.state.get(TUR);
   if (!tur || tur.no !== no || tur.durum !== "calisiyor") return;
-  if (k.some(x => x.tur === no && x.durum === "calisiyor")) return;
+  if (k.some(x => x.tur === no && x.durum === "calisiyor") || tur.bekleyen?.length) return;
   const ekip = await aktifEkip($);
   if (!ekip.oto) return;
-  await $.state.set(TUR, { no, durum: "degerlendiriliyor" });
+  const yogun = Boolean(tur.yogun);
+  await $.state.set(TUR, { ...tur, durum: "degerlendiriliyor" });
   await $.state.set(DANISMAN, { soru: `Tur ${no} değerlendirmesi`, durum: "bekliyor" });
   cark($);
-  const ciktilar = k.filter(x => x.tur === no)
-    .map(x => `### ${x.tip.slice(P.length + 1)} (${x.durum}) — ${x.aciklama}\n${tek(x.cikti, 1800)}`).join("\n\n");
+  const { value: br = [] } = await $.state.get(BRIFLER);
+  const buTur = k.filter(x => x.tur === no);
+  const ciktilar = buTur
+    .map(x => `### ${x.tip.slice(P.length + 1)} (${kademe(x.model)}, ${x.durum}, ${x.adim ?? 0} adım, ${sure((x.bitis ?? Date.now()) - x.baslangic)}) — ${x.aciklama}\n${tek(x.cikti, 1800)}`).join("\n\n");
   const r = await fable($, {
-    system: DEGER_SISTEM, maxTokens: 2500, timeoutMs: 180_000,
-    prompt: `Ekip: ${ekip.ad}. Hedef: ${ekip.hedef ?? ekip.amac}. Üyeler: ${ekip.uyeler.filter(u => u !== "danisman").join(", ")}. Tur ${no}/${MAX_TUR}.\n\n${ciktilar}`,
+    system: DEGER_SISTEM, maxTokens: 3000, timeoutMs: 180_000,
+    prompt: `Ekip: ${ekip.ad}. Hedef: ${ekip.hedef ?? ekip.amac}. Üyeler: ${ekip.uyeler.filter(u => u !== "danisman").join(", ")}. Tur ${no}/${MAX_TUR}. İş: ${yogun ? "yoğun" : "basit"}.` +
+      (br.length ? `\nBu turdaki brifler: ${br.map(b => `#${b.no} → ${b.uye} (${b.eylem})`).join(", ")}.` : "") + `\n\n${ciktilar}`,
   });
   const j = r.isAnswered ? jsonAl(r.text) : null;
-  await $.state.set(DANISMAN, {
-    soru: `Tur ${no} değerlendirmesi`, durum: r.isAnswered ? "bitti" : "hata", ...notu(r),
-    cevap: r.isAnswered ? String(j?.degerlendirme ?? r.text).slice(0, 9000) : `Değerlendirme alınamadı: ${r.reason}`,
-  });
+  const yogunSonra = yogun || j?.yogunluk === "yogun"; // yükseltilebilir, düşürülemez (§3)
   const { value: simdi = null } = await $.state.get(TUR);
   const sonraki = atamalar(j, ekip);
-  if (simdi?.durum === "durduruldu" || j?.bitti || !sonraki.length || no >= MAX_TUR) {
-    if (simdi?.durum !== "durduruldu") await $.state.set(TUR, { no, durum: "bitti" });
-    $.ui.toast(j?.bitti ? `🏁 ${ekip.ad}: Fable hedefi tamamlandı saydı` : `◆ ${ekip.ad}: tur ${no} bitti, yeni atama yok`);
+  const son = simdi?.durum === "durduruldu" || j?.bitti || !sonraki.length || no >= MAX_TUR;
+  // Yoğun işte rapor: üye tablosu telemetriden, gerisi danışmandan (§4).
+  const metin = r.isAnswered ? String(j?.degerlendirme ?? r.text) : `Değerlendirme alınamadı: ${r.reason}`;
+  await $.state.set(DANISMAN, {
+    soru: son ? `${yogunSonra ? "Son rapor" : "Sonuç"} — ${ekip.ad}` : `Tur ${no} değerlendirmesi`, durum: r.isAnswered ? "bitti" : "hata", ...notu(r),
+    cevap: (yogunSonra && r.isAnswered ? `**Üye tablosu**\n\n${uyeTablosu(buTur, br)}\n\n${metin}` : metin).slice(0, 9000),
+  });
+  if (son) {
+    if (simdi?.durum !== "durduruldu") await $.state.set(TUR, { no, durum: "bitti", yogun: yogunSonra });
+    $.ui.toast(j?.bitti ? `🏁 ${ekip.ad}: Fable hedefi tamamlandı saydı${yogunSonra ? " — son rapor panelde" : ""}` : `◆ ${ekip.ad}: tur ${no} bitti, yeni atama yok`);
     return;
   }
-  await $.state.set(TUR, { no: no + 1, durum: "calisiyor" });
-  for (const a of sonraki) await baslat($, a.uye, a.gorev, no + 1);
+  await $.state.set(TUR, { no: no + 1, durum: "calisiyor", yogun: yogunSonra, bekleyen: [] });
+  await $.state.set(BRIFLER, []);
+  for (const a of sonraki) await baslat($, a.uye, a.gorev, no + 1, { model: a.model, yogun: yogunSonra });
+  if (yogunSonra) izlemeyiBaslat($);
   $.ui.toast(`◆ Fable tur ${no + 1} için ${sonraki.length} görev atadı`);
 }
 
-async function kosuEkle($, id, tip, aciklama, model, tur) {
+async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
   const { value: k = [] } = await $.state.get(KOSULAR);
   if (k.some(x => x.id === id)) return;
-  const kosu = { id, tip, aciklama: tek(aciklama, 50), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}) };
+  const kosu = { id, tip, aciklama: tek(aciklama, 50), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}), ...(beklenenDk ? { beklenenDk } : {}) };
   await $.state.set(KOSULAR, [...k, kosu].slice(-MAX_KOSU));
   cark($);
   animasyon($);
 }
 
 // $.agent.spawn kendi agent.spawn hook'umuzdan geçmez: koşuyu burada elle kaydet.
-export async function baslat($, uye, gorev, tur) {
-  const r = await $.agent.spawn({ subagentType: `${P}:${uye}`, prompt: gorev, description: tek(gorev, 40) });
+// o.model: danışmanın bu görev için seçtiği kademe (yoksa rolün modeli); o.yogun: işçi tablolu biçimde raporlar.
+export async function baslat($, uye, gorev, tur, o = {}) {
+  const prompt = `${o.yogun ? "[YOĞUN] " : ""}${gorev}`;
+  const r = await $.agent.spawn({ subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(o.model ? { model: o.model } : {}) });
   if (r.deny) $.ui.toast(`ekip: ${uye} başlatılamadı — ${r.deny}`);
-  else if (r.agentId) await kosuEkle($, r.agentId, `${P}:${uye}`, gorev, r.model, tur);
+  else if (r.agentId) await kosuEkle($, r.agentId, `${P}:${uye}`, gorev, r.model ?? o.model, tur, o.beklenenDk);
   return r;
 }
 
@@ -477,7 +609,10 @@ export function register(on) {
     anim?.cancel?.();
     anim = null;
     canli.clear();
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef>]" });
+    izleme?.cancel?.();
+    izleme = null;
+    try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
+    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | kurallar]" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
@@ -491,7 +626,8 @@ export function register(on) {
     await $.ui.open({ id: PANE, title: "Ajan Ekibi", focus: true, closeOnEscape: true });
     animasyon($);
     if (/^sor\s+/i.test(args)) { void sor($, args.replace(/^sor\s+/i, "")); return { text: "Soru danışmana gitti; cevap panelde." }; }
-    if (/^kur\s+/i.test(args)) { void kur($, args.replace(/^kur\s+/i, "")); return { text: "Fable ekibi tasarlıyor; plan panelde onayını bekleyecek." }; }
+    if (/^kur\s+/i.test(args)) { void kur($, args.replace(/^kur\s+/i, "")); return { text: "Fable ekibi tasarlıyor; plan onay beklemeden başlar, ilerleme panelde." }; }
+    if (/^kurallar\b/i.test(args)) { await $.state.set(DANISMAN, { soru: "Ekip kuralları v2", cevap: KURALLAR, durum: "bitti" }); return { text: KURALLAR }; }
     return { text: "Ajan ekibi paneli açıldı." };
   });
 
@@ -529,7 +665,7 @@ export function register(on) {
       await $.state.set(DANISMAN, { soru: "Ekip çıktılarını incele", cevap: kosu.cikti, durum: durum === "bitti" ? "bitti" : "hata" });
       await $.state.set(INCELEME, null);
     }
-    if (kosu.tur) void turBitti($, kosu.tur);
+    if (kosu.tur) void turIlerle($, kosu, ad).catch(err => $.ui.toast(`ekip: tur akışı hatası — ${String(err).slice(0, 80)}`));
     return r;
   });
 
@@ -551,6 +687,7 @@ export function register(on) {
     const { value: taslak = null } = await $.state.get(TASLAK);
     const { value: tur = null } = await $.state.get(TUR);
     const { value: adimBellek = {} } = await $.state.get(ADIM_BELLEK);
+    const { value: brifler = [] } = await $.state.get(BRIFLER);
     await $.state.get(SURUM);
     const liste = await ekipler($);
     const ekip = await aktifEkip($);
@@ -599,7 +736,7 @@ export function register(on) {
       if (!genis) {
         const ozet = fableMesgul ? `${spin} düşünüyor` : !k ? "· bekliyor" : k.durum === "hata" || k.durum === "iptal" ? `✖ ${k.durum} ${gecen}`
           : `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`;
-        return Box({ key: `u-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: kisaModel(r.model).padEnd(7) }),
+        return Box({ key: `u-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: kisaModel(k?.model ?? r.model).padEnd(7) }),
           Text({ color: fableMesgul ? "magenta" : !k ? "gray" : k.durum === "bitti" ? "green" : k.durum === "calisiyor" ? "cyan" : "red", children: ozet.padEnd(22) }), ...buton] });
       }
       const [ust, alt] = fableMesgul
@@ -698,7 +835,7 @@ export function register(on) {
           Text({ color: calisan ? "cyan" : "gray", children: `  ·  ${calisan}/${ekip.uyeler.length} çalışıyor` }),
         ] }),
         ...(ekip.oto || tur || !elleAcik ? [Box({ key: "tur", flexDirection: "row", children: [
-          Text({ dimColor: true, children: "  Fable atıyor, Opus yürütüyor  ·  " }),
+          Text({ dimColor: true, children: `  Fable yönetir · Opus uzman · Sonnet hızlı${tur ? ` · ${tur.yogun ? "yoğun iş" : "basit iş"}` : ""}  ·  ` }),
           Text({ color: tur?.durum === "bitti" ? "green" : tur?.durum === "durduruldu" ? "yellow" : "cyan", children:
             !tur ? "beklemede" : tur.durum === "calisiyor" ? `${spin} tur ${tur.no}/${MAX_TUR} çalışıyor`
               : tur.durum === "degerlendiriliyor" ? `${spin} Fable tur ${tur.no}'i değerlendiriyor`
@@ -724,6 +861,13 @@ export function register(on) {
           Text({ dimColor: true, children: kosular.length ? "Son koşular" : "Henüz koşu yok — görev geldikçe ekip burada çalışır; senin bir şey yapman gerekmez." }),
           ...kosular.slice(-5).map(kosuSatiri),
         ] }),
+        ...(brifler.length ? [Box({ key: "brif", flexDirection: "column", marginTop: 1, children: [
+          Text({ dimColor: true, children: `Ara brifler (tur ${tur?.no ?? "?"})` }),
+          ...brifler.slice(-3).map(b => Text({ key: `br-${b.no}`, children: [
+            Text({ color: b.eylem === "yon" ? "cyan" : "yellow", children: `  #${b.no} ${b.tetik} → ${b.uye} ` }),
+            Text({ dimColor: true, children: `${b.eylem === "yon" ? "yön" : b.eylem === "durdur" ? "durdur" : "yeniden ata"} · ${tek(b.neden, genis ? 70 : 40)}` }),
+          ] })),
+        ] })] : []),
         ...(dan ? [Box({ key: "dan", flexDirection: "column", marginTop: 1, children: [
           Text({ color: "magenta", bold: true, children: `◆ Danışman: ${tek(dan.soru, 70)}` }),
           ...(dan.not ? [Text({ color: "yellow", children: `  ${dan.not}` })] : []),

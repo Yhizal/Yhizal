@@ -1,1 +1,1 @@
-{"name":"ekip","version":"0.8.1","description":"Ajan ekibi platformu: hedefi yaz, en güncel Fable ekibi kurup görevleri atasın, en güncel Opus yürütsün; Sade, titremeyen panelde izle. /ekip ile panel.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}
+{"name":"ekip","version":"0.9.0","description":"Ajan ekibi platformu: hedefi yaz, Fable (danışman) işi böler ve kademe atar — know-how işi Opus, hızlı işler Sonnet; yoğun işte ara brif ve tablolu karşılaştırmalı rapor; Sade, titremeyen panelde izle. /ekip ile panel.","author":{"name":"Yusuf"},"types":"./types/index.d.ts"}
