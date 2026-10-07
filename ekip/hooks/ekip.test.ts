@@ -190,25 +190,7 @@ test('hex renk (Clawd turuncusu) motor tarafından kabul edilir', { plugins: [{ 
   await ui.unmount()
 })
 
-test('şeridin iki satırı aynı sütundan başlar (piksel hizası)', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
-  on('ui.toast', () => ({ value: undefined }) as never)
-  on('session.start', (_$: unknown, e: any) => e as never)
-  on('command.register', () => ({ value: undefined }) as never)
-  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
-  on('agent.spawn', () => ({ model: 'opus', agentId: 'h1' }) as never)
-  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
-  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:test-yazici' } as never)
-  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
-    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 120, placement: 'dock' } as never })
-  const satirlar = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
-  const ad = satirlar.find(t => t.startsWith('▸ test-yazici'))!
-  const model = satirlar.find(t => /^  opus · /.test(t))!
-  expect([...ad].length).toBe([...model].length)
-  await ui.unmount()
-})
-
-test('terminalde çalışan üye Raster sahnesiyle çizilir ve saat blit ile canlandırır; masaüstünde yazılı şerit', async ($, on) => {
+test('sade mod: hiçbir yüzeyde sahne/şerit yok, saat ilerleyince blit de yeniden çizim de yok', async ($, on) => {
   const saat = mock.clock(on); mock.store(on, {})
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
@@ -220,21 +202,15 @@ test('terminalde çalışan üye Raster sahnesiyle çizilir ve saat blit ile can
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
   await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:test-yazici' } as never)
   const props = { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 120, placement: 'dock' } as never
-  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip', props })
-  expect(await ui.find({ type: 'Raster', key: 'r-test-yazici' } as never)).toBeDefined()
-  await saat.advance(400)
-  expect(blitler.length).toBeGreaterThan(0)
-  expect(blitler.at(-1).key).toBe('r-test-yazici')
-  await ui.unmount()
-  for (const surface of ['desktop', 'vscode', 'mobile'] as const) {
-    const ui2 = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip', props })
-    expect(await ui2.find({ type: 'Raster' } as never)).toBeUndefined()
-    const svg: any = await ui2.find({ type: 'Svg' } as never)
-    expect(svg).toBeDefined()
-    await ui2.unmount()
+  for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
+    const ui = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip', props })
+    expect(await ui.find({ type: 'Raster' } as never)).toBeUndefined()
+    expect(await ui.find({ type: 'Svg' } as never)).toBeUndefined()
+    const satirlar = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
+    expect(satirlar.some(t => t.startsWith('▸ test-yazici'))).toBe(true)
+    expect(satirlar.some(t => t.startsWith('● ') && /%/.test(t))).toBe(true)   // sabit nokta + yüzde, spinner yok
+    await ui.unmount()
   }
-  const ui3 = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip', props: { ...(props as any), bodyColumns: 50 } as never })
-  expect(await ui3.find({ type: 'Svg' } as never)).toBeDefined()   // dar panelde de vektör şerit (ölçeklenir)
-  const ui2 = ui3
-  await ui2.unmount()
+  await saat.advance(3000)
+  expect(blitler).toHaveLength(0)
 })

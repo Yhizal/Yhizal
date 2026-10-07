@@ -94,6 +94,10 @@ const KONFETI_MS = 2500;
 let ticker = null;
 let seyrek = 0;
 let svgYuzey = false; // son çizim uygulama yüzeyinde (SVG sahne) mi — çark seyrekleşir
+// SADE: animasyon yok — sahne/şerit, spinner ve zamanlayıcılar kapalı; panel yalnız durum
+// değişince (ajan başladı, adım attı, bitti) yeniden çizilir. Sakinleştirilmiş sahne de
+// uygulama panelinde titremeyi sürdürdü (kullanıcı, 7 Eki 2026: "daha basit bir şey").
+export const SADE = true;
 
 export function sure(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -310,7 +314,7 @@ async function kaydet($, liste) {
 }
 
 function animasyon($) {
-  if (anim) return;
+  if (anim || SADE) return;
   anim = $.clock.every(ANIM_MS, async () => {
     kareNo++;
     const { value: k = [] } = await $.state.get(KOSULAR);
@@ -333,7 +337,7 @@ function animasyon($) {
 }
 
 function cark($) {
-  if (ticker) return;
+  if (ticker || SADE) return;
   ticker = $.clock.every(150, async () => {
     const { value: k = [] } = await $.state.get(KOSULAR);
     const { value: taslak = null } = await $.state.get(TASLAK);
@@ -550,8 +554,9 @@ export function register(on) {
     await $.state.get(SURUM);
     const liste = await ekipler($);
     const ekip = await aktifEkip($);
-    const genis = (e.props.bodyColumns ?? 80) >= 88;
-    const spin = SPIN[frame % SPIN.length];
+    // Sade modda her genişlikte tek satırlık özet (şerit/sahne yok), spinner yerine sabit nokta.
+    const genis = !SADE && (e.props.bodyColumns ?? 80) >= 88;
+    const spin = SADE ? "●" : SPIN[frame % SPIN.length];
     const calisan = kosular.filter(k => k.durum === "calisiyor").length;
     const modAyarla = m => void $.state.set(MOD, m);
     const girisVar = Boolean(Input && Select);
@@ -559,8 +564,8 @@ export function register(on) {
     // Geniş panelde her üye 2 satırlık bir şerit: üstte ad + gökyüzü, altta model + zemin.
     // Dar panelde (ya da mobilde) tek satırlık özet.
     const SW = SERIT_W + 2;
-    const raster = Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
-    const svg = Boolean(Svg) && !raster; // Claude Code uygulaması (masaüstü, web, VS Code, mobil): animasyonu uygulama oynatır
+    const raster = !SADE && Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
+    const svg = !SADE && Boolean(Svg) && !raster; // Claude Code uygulaması (masaüstü, web, VS Code, mobil): animasyonu uygulama oynatır
     svgYuzey = svg;
     const uyeSatiri = (u, i) => {
       const k = durumu(kosular, u);
