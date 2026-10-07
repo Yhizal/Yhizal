@@ -14,7 +14,9 @@ export type EkipTaslak =
   | { durum: "hata"; hedef: string; hata: string }
   | { durum: "hazir"; hedef: string; ad: string; amac: string; not?: string; uyeler: Array<{ name: string; description: string; prompt: string; tools: string[]; model: string; gorev: string; [k: string]: unknown }> };
 export type EkipBekleyen = { uye: string; gorev: string; model?: string; beklenenDk?: number; bagimli: string };
-export type EkipTur = null | { no: number; durum: "calisiyor" | "degerlendiriliyor" | "bitti" | "durduruldu"; yogun?: boolean; bekleyen?: EkipBekleyen[] };
+export type EkipTur = null | { no: number; durum: "calisiyor" | "degerlendiriliyor" | "bitti" | "durduruldu"; yogun?: boolean; bekleyen?: EkipBekleyen[]; butce?: string };
+export type EkipButce = { seviye: "bol" | "normal" | "tasarruf" | "kritik"; ozet: string } | null;
+export type EkipSonKontrol = { id?: string; durum: "bekliyor" | "onay" | "ret" | "hata"; baslik: string; neden?: string } | null;
 export type EkipBrif = { no: number; uye: string; eylem: "yon" | "durdur" | "yeniden_ata"; tetik: string; neden: string; zaman: number };
 export type EkipMod =
   | null
@@ -23,6 +25,6 @@ export type EkipMod =
 
 declare module "claude-code" {
   interface PluginState {
-    ekip: { kosular: EkipKosu[]; danisman: EkipDanisman; mod: EkipMod; frame: number; aktif: string; surum: number; incelemeId: string | null; taslak: EkipTaslak; tur: EkipTur; adimBellek: Record<string, Array<{ s: number; d: number }>>; brifler: EkipBrif[] };
+    ekip: { kosular: EkipKosu[]; danisman: EkipDanisman; mod: EkipMod; frame: number; aktif: string; surum: number; incelemeId: string | null; taslak: EkipTaslak; tur: EkipTur; adimBellek: Record<string, Array<{ s: number; d: number }>>; brifler: EkipBrif[]; butce: EkipButce; sonKontrol: EkipSonKontrol };
   }
 }

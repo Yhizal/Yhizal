@@ -55,7 +55,18 @@ Tasarruf: tetikleyici yoksa brif yok; "nasıl gidiyor" mesajı yasak; üye baş�
 - Token: işçiye tam dosya yolu ve ilgili satır aralığı verilir; "projeyi keşfet" denmez.
 - Kullanıcıya müdahale gerektirmez: belirsizlikte en güvenli (geri alınabilir) seçenek uygulanır ve raporda yazılır.
 - Her tur sonunda "devam/bitir" kararı tek satır gerekçeyle yazılır; 3 tur sınırı aşılmaz.
-- Üretim ortamı (push prod, deploy, veritabanı yazma) hiçbir işçiye verilmez; raporda "önerilen komut" olarak yazılır.`;
+- Üretim ortamı (push prod, deploy, veritabanı yazma) hiçbir işçiye verilmez; raporda "önerilen komut" olarak yazılır.
+
+## 7. Kota bütçesi ve son kontrol
+Danışman her planda, tur değerlendirmesinde ve brifte kalan 5 saatlik hakkı ve haftalık tüketim temposunu (bu hızla dönem sonu tahmini) görür ve ekibin gücünü, hızını, verimini buna göre ayarlar:
+| Bütçe | Ne zaman | Ekip ayarı |
+|---|---|---|
+| bol | 5 saat <%30 ve haftalık tempo rahat | Kurallara göre serbest; gerekiyorsa Opus ağırlıklı, 3 tur |
+| normal | arada | Kurallara göre; en fazla 5 işçi, 3 tur |
+| tasarruf | 5 saat ≥%70, haftalık ≥%75 ya da bu hızla dönem sonu >%100 | En fazla 3 işçi, 2 tur; Opus yalnız tek çekirdek işte, gerisi Sonnet; brif az ve öz |
+| kritik | 5 saat ≥%90, haftalık ≥%90 ya da 5 saatlik hak sıfırlanmadan biter | En fazla 2 işçi, 1 tur; yalnız Sonnet; ara brif yok; işi küçült, kalanı açık uç yaz |
+Bütçe kodla da uygulanır: sınırı aşan üye ve Opus ataması planda kırpılır. Danışmanın kendisi her bütçede Fable'dır.
+Son kontrol her zaman danışmandadır: ekipte iş bitince (otomatik turda da, elle ya da ana oturumun verdiği işte de) danışman çıktıları dosyalardan doğrular — bitiş ölçütü sağlandı mı, diff disiplini, risk — ve "KARAR: ONAY" ya da "KARAR: RET — <neden>" ile bitirir. Kritik bütçede son kontrol hafiftir (yalnız çıktılar üzerinden).`;
 
 export const ISCI_FORMAT = `Çıktı biçimi: görev "[YOĞUN]" ile başlıyorsa en fazla 15 satır — ilk satır "ÖZET: <tek cümle>"; sonra | Dosya | Değişiklik | Doğrulama | Sonuç | tablosu (test/ölçüm yaptıysan önce/sonra sayıları); takıldıysan son satır "KARAR GEREKİR: ..." ya da "ENGEL: ...". Etiket yoksa en fazla 5 satır düz metin: değişen dosyalar ve doğrulama sonucu. Tahmin etme; emin olmadığını yaz. Görev sırasında "BRİF" başlıklı mesaj gelirse yönünü ona göre düzelt; "DUR" gelirse işi bırak ve o ana kadarını bu biçimde özetle.`;
 export const KADEME_EK = {
@@ -135,6 +146,48 @@ export function brifDogrula(j, kosanUyeler) {
     bitis: String(j.bitis_olcutu ?? "").slice(0, 200),
     ...(eylem === "yeniden_ata" ? { yeniModel: modelSec(j.yeni_model ?? UZMAN_MODEL), yeniGorev: String(j.yeni_gorev ?? j.yeni_hedef ?? "").slice(0, 1500) } : {}),
   };
+}
+
+// ── Kota bütçesi (§7): 5 saatlik ve haftalık pencereden seviye; seviyeye göre ekip ayarı ──
+const PENCERE = { five_hour: 5 * 3_600_000, seven_day: 7 * 86_400_000 };
+export const BUTCE_AYAR = {
+  bol: { maxUye: 5, maxTur: 3, opusMax: 5, brifMaxTur: 6, sonKontrol: "tam" },
+  normal: { maxUye: 5, maxTur: 3, opusMax: 5, brifMaxTur: 6, sonKontrol: "tam" },
+  tasarruf: { maxUye: 3, maxTur: 2, opusMax: 1, brifMaxTur: 3, sonKontrol: "tam" },
+  kritik: { maxUye: 2, maxTur: 1, opusMax: 0, brifMaxTur: 0, sonKontrol: "hafif" },
+};
+const sureYaz = ms => { const m = Math.max(0, Math.round(ms / 60_000)); return m >= 1440 ? `${Math.floor(m / 1440)}g ${Math.floor((m % 1440) / 60)}sa` : m >= 60 ? `${Math.floor(m / 60)}sa ${m % 60}dk` : `${m}dk`; };
+/** Pencere: kullanım, kalan süre ve bu hızla dönem sonu tahmini (geçen < %5 iken tahmin yok). */
+export function pencere(lim, now = Date.now()) {
+  const w = PENCERE[lim?.kind];
+  if (!w) return null;
+  const kalan = lim.resetsAt ? Date.parse(lim.resetsAt) - now : NaN;
+  const gecen = Number.isFinite(kalan) ? Math.min(1, Math.max(0, 1 - kalan / w)) : null;
+  const sonu = gecen != null && gecen > 0.05 ? Math.round(lim.percentUsed / gecen) : null;
+  // Bu hızla dönem sonu %105'i geçiyorsa hak sıfırlanmadan biter (%5 pay: sınırda yuvarlama dalgalanmasın).
+  return { yuzde: lim.percentUsed, kalanMs: Number.isFinite(kalan) ? Math.max(0, kalan) : null, sonu, sifirlanmadanBiter: sonu != null && sonu > 105 };
+}
+/** Bütçe seviyesi ve danışmana giden tek satırlık özet. Kota bilgisi yoksa (API anahtarı) normal. */
+export function butce(limits, now = Date.now()) {
+  const p5 = pencere((limits ?? []).find(l => l.kind === "five_hour"), now);
+  const p7 = pencere((limits ?? []).find(l => l.kind === "seven_day"), now);
+  if (!p5 && !p7) return { seviye: "normal", ozet: "kota bilgisi yok (abonelik dışı) — normal bütçe", ayar: BUTCE_AYAR.normal };
+  const seviye =
+    (p5 && (p5.yuzde >= 90 || p5.sifirlanmadanBiter)) || (p7 && p7.yuzde >= 90) ? "kritik"
+    : (p5 && p5.yuzde >= 70) || (p7 && (p7.yuzde >= 75 || (p7.sonu ?? 0) > 100)) ? "tasarruf"
+    : (!p5 || p5.yuzde < 30) && (!p7 || (p7.sonu ?? p7.yuzde) < 70) ? "bol"
+    : "normal";
+  const yaz = (ad, p) => !p ? null : `${ad} %${Math.round(p.yuzde)}${p.kalanMs != null ? ` (sıfırlanma ${sureYaz(p.kalanMs)}` : " ("}${p.sonu != null ? `, bu hızla dönem sonu ~%${p.sonu}` : ""})`;
+  return { seviye, ozet: [yaz("5 saat", p5), yaz("haftalık", p7)].filter(Boolean).join(" · "), ayar: BUTCE_AYAR[seviye] };
+}
+/** Bütçeyi plana uygular: fazla üye atılır, Opus sınırı aşan atamalar Sonnet'e iner (ilk Opus çekirdek kalır). */
+export function butceUygula(uyeler, ayar) {
+  let opus = 0;
+  return uyeler.slice(0, ayar.maxUye).map(u => {
+    if (u.model !== UZMAN_MODEL) return u;
+    if (opus < ayar.opusMax) { opus++; return u; }
+    return { ...u, model: HIZLI_MODEL, inen: true };
+  });
 }
 
 /** İşçiye giden brif metni (≤6 satır). */

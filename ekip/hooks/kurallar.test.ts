@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { ESIK, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, KURALLAR } from './kurallar.mjs'
+import { ESIK, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, KURALLAR, butce, butceUygula, pencere, BUTCE_AYAR } from './kurallar.mjs'
 
 test('kademe seçimi: sonnet/hızlı → Sonnet, gerisi (sınır kuralı) → Opus', () => {
   expect(modelSec('sonnet')).toBe('sonnet')
@@ -74,5 +74,31 @@ test('üye tablosu telemetriden: kademe, durum, bayrak, brif sayısı', () => {
 })
 
 test('kural metni altı bölümü taşır', () => {
-  for (const b of ['Hiyerarşi', 'Model atama', 'Yoğun iş', 'Rapor', 'Ara brif', 'Genel']) expect(KURALLAR).toMatch(new RegExp(`## \\d\\. ${b}`))
+  for (const b of ['Hiyerarşi', 'Model atama', 'Yoğun iş', 'Rapor', 'Ara brif', 'Genel', 'Kota bütçesi']) expect(KURALLAR).toMatch(new RegExp(`## \\d\\. ${b}`))
+})
+
+test('kota bütçesi: 5 saatlik hak ve haftalık tempo seviyeyi belirler', () => {
+  const now = Date.parse('2026-10-07T12:00:00Z')
+  const L = (k: string, p: number, kalanMs: number) => ({ kind: k, percentUsed: p, resetsAt: new Date(now + kalanMs).toISOString() })
+  const H = 3_600_000, G = 86_400_000
+  expect(butce([], now).seviye).toBe('normal')                                            // abonelik dışı
+  expect(butce([L('five_hour', 10, 4 * H), L('seven_day', 15, 5 * G)], now).seviye).toBe('bol')   // haftalık tempo: dönem sonu ~%52
+  expect(butce([L('five_hour', 10, 4 * H), L('seven_day', 20, 5 * G)], now).seviye).toBe('normal') // dönem sonu ~%70: rahat sayılmaz
+  expect(butce([L('five_hour', 50, 2 * H), L('seven_day', 40, 3 * G)], now).seviye).toBe('normal')
+  expect(butce([L('five_hour', 72, 1 * H), L('seven_day', 40, 3 * G)], now).seviye).toBe('tasarruf')  // %72, kalan hak sıfırlanmaya yetiyor
+  expect(butce([L('five_hour', 72, 2 * H), L('seven_day', 40, 3 * G)], now).seviye).toBe('kritik')    // bu hızla 1sa 10dk'da biter, sıfırlanma 2 sa
+  expect(butce([L('five_hour', 20, 4 * H), L('seven_day', 60, 5 * G)], now).seviye).toBe('tasarruf') // 2 günde %60 → dönem sonu %210
+  expect(butce([L('five_hour', 91, 1 * H)], now).seviye).toBe('kritik')
+  expect(butce([L('five_hour', 60, 4 * H)], now).seviye).toBe('kritik')                  // 1 saatte %60: sıfırlanmadan biter
+  const b = butce([L('five_hour', 72, 2 * H), L('seven_day', 40, 3 * G)], now)
+  expect(b.ozet).toMatch(/^5 saat %72 \(sıfırlanma 2sa 0dk, bu hızla dönem sonu ~%120\) · haftalık %40/)
+  expect(pencere(L('five_hour', 1, 5 * H - 60_000), now)?.sonu).toBeNull()             // pencere yeni: tahmin yok
+})
+
+test('bütçe plana uygulanır: fazla üye atılır, Opus sınırı aşanlar Sonnet\'e iner', () => {
+  const u = [{ name: 'a', model: 'opus' }, { name: 'b', model: 'opus' }, { name: 'c', model: 'sonnet' }, { name: 'd', model: 'opus' }]
+  const t = butceUygula(u, BUTCE_AYAR.tasarruf)
+  expect(t.map((x: any) => [x.name, x.model, Boolean(x.inen)])).toEqual([['a', 'opus', false], ['b', 'sonnet', true], ['c', 'sonnet', false]])
+  expect(butceUygula(u, BUTCE_AYAR.kritik).map((x: any) => x.model)).toEqual(['sonnet', 'sonnet'])
+  expect(butceUygula(u, BUTCE_AYAR.bol).length).toBe(4)
 })

@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek } from './ekip.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -221,7 +221,7 @@ test('sade mod: hiçbir yüzeyde sahne/şerit yok, saat ilerleyince blit de yeni
   expect(blitler).toHaveLength(0)
 })
 
-test('yoğun iş: kademeli model ataması, bağımlı üye sırası, ara brif kararı ve tablolu son rapor', async ($, on) => {
+test('yoğun iş: kademeli model ataması ve bağımlı üye sırası', async ($, on) => {
   mock.clock(on)
   mock.store(on, {})
   const toasts: string[] = []
@@ -254,7 +254,7 @@ test('yoğun iş: kademeli model ataması, bağımlı üye sırası, ara brif ka
   // Bağımlı testci beklemede; diğerleri kendi kademesinde ve [YOĞUN] etiketiyle başladı.
   expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:cekirdek', 'opus'], ['ekip:belgeci', 'sonnet']])
   expect(spawned[0].prompt).toMatch(/^\[YOĞUN\] adc\.c kalibrasyonu\nBitiş ölçütü: make test/)
-  expect(toasts.some(t => /2 Sonnet · yoğun iş/.test(t))).toBe(true)
+  expect(toasts.some(t => /1 Opus, 2 Sonnet · bütçe normal · yoğun iş/.test(t))).toBe(true)
   expect(sistemler).toEqual(['kur'])
 })
 
@@ -273,4 +273,58 @@ test('tur adımı: biten üye bağımlıyı açar (çıktısıyla), yoğun işte
   expect(turAdimi({ ...tur, yogun: false }, k, k[0], 'cekirdek').tetik).toBeNull()      // basit işte brif yok
   expect(turAdimi(tur, [k[0]], k[0], 'cekirdek').tetik).toBeNull()                     // süren yoksa brif yok, tur değerlendirilir
   expect(turAdimi({ ...tur, no: 2 }, k, k[0], 'cekirdek').acilan).toEqual([])           // eski turun çıktısı yeni turu etkilemez
+})
+
+test('kritik kota: Fable bütçeyi görür, plan 2 üyeye ve yalnız Sonnet\'e kırpılır', async ($, on) => {
+  mock.clock(on)
+  mock.store(on, {})
+  const toasts: string[] = []
+  on('ui.toast', (_$: unknown, e: any) => (toasts.push(String(e.text)), { value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  const simdi = Date.now()
+  on('session.usage', () => ({ value: { startedAt: 0, rateLimits: [
+    { kind: 'five_hour', percentUsed: 93, resetsAt: new Date(simdi + 3_600_000).toISOString() },
+    { kind: 'seven_day', percentUsed: 40, resetsAt: new Date(simdi + 4 * 86_400_000).toISOString() },
+  ] } }) as never)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => (istemler.push(String(e.prompt)), { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Büyük Ekip', amac: 'x', uyeler: [
+    { ad: 'mimar', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'a.c', bitis_olcutu: 'make' },
+    { ad: 'ikinci', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'b.c', bitis_olcutu: 'make' },
+    { ad: 'ucuncu', model: 'sonnet', araclar: ['Read'], gorev: 'c.c', bitis_olcutu: 'make' },
+  ] }) } }) as never)
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'kur büyük iş', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 50))
+  expect(istemler[0]).toMatch(/Kota: 5 saat %93[\s\S]*Bütçe: KRİTİK — en fazla 2 işçi, 1 tur, en fazla 0 Opus, ara brif yok/)
+  expect(spawned.map(x => [x.subagent_type, x.model])).toEqual([['ekip:mimar', 'sonnet'], ['ekip:ikinci', 'sonnet']])
+  expect(toasts.some(t => /0 Opus, 2 Sonnet · bütçe kritik/.test(t))).toBe(true)
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  expect(await ui.find({ type: 'Text', text: 'kritik' })).toBeDefined()
+  await ui.unmount()
+})
+
+test('son kontrol: karar satırı okunur, istem doğrulama ister; elle işler hepsi bitince bir kez kontrol edilir', () => {
+  expect(kararOku('| x |\nKARAR: ONAY')).toEqual({ durum: 'onay', neden: '' })
+  expect(kararOku('KARAR: RET — test yok')).toEqual({ durum: 'ret', neden: 'test yok' })
+  expect(kararOku('belirsiz').durum).toBe('hata')
+  const p = sonKontrolPrompt({ baslik: 'ADC', rapor: 'Sonuç: bitti', kosular: [{ tip: 'ekip:cekirdek', model: 'opus', durum: 'bitti', aciklama: 'adc', cikti: 'ÖZET: tamam' }], yogun: true } as never)
+  expect(p).toMatch(/SON KONTROL — ADC/)
+  expect(p).toMatch(/\| Kontrol \| Sonuç \| Kanıt/)
+  expect(p).toMatch(/KARAR: ONAY" ya da "KARAR: RET/)
+  const k: any[] = [
+    { tip: 'ekip:hizli-isci', durum: 'bitti', bitis: 200 },
+    { tip: 'ekip:test-yazici', durum: 'calisiyor' },
+    { tip: 'ekip:danisman', durum: 'bitti', bitis: 300 },
+    { tip: 'ekip:kod-inceleyici', durum: 'bitti', bitis: 300, tur: 1 },
+  ]
+  expect(elleKontrolEdilecek(k, 0)).toEqual([])                          // biri sürüyor: bekle
+  k[1].durum = 'bitti'; k[1].bitis = 250
+  expect(elleKontrolEdilecek(k, 0).map((x: any) => x.tip)).toEqual(['ekip:hizli-isci', 'ekip:test-yazici'])  // danışman ve turlu işler hariç
+  expect(elleKontrolEdilecek(k, 220).map((x: any) => x.tip)).toEqual(['ekip:test-yazici'])                   // önceki kontrolden sonra bitenler
 })
