@@ -1,5 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
+import { semaSvg, yuzde5, sureKisa } from "./sema.mjs";
 import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -769,6 +770,50 @@ export async function baslat($, uye, gorev, tur, o = {}) {
   return r;
 }
 
+// ── Ekip şeması verisi: kademe grupları (ast-üst), üye durumları, başlık rozetleri ──
+const KADEME_SIRA = [["uzman", "Uzman", "opus"], ["hızlı", "Hızlı", "sonnet"], ["hafif", "Hafif", "haiku"]];
+export const modelAdi = id => String(id ?? "").replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/^./, c => c.toUpperCase());
+/** Üyeleri kademelerine göre gruplar; kademe, üyenin son koşusunun gerçek modelinden (yoksa rolünden) okunur. */
+export function kademeGruplari(ekip, kosular) {
+  const kdOf = u => { const kk = kademe(durumu(kosular, u)?.model ?? rolu(ekip, u)?.model); return kk === "danışman" ? "uzman" : kk; };
+  const uyeler = ekip.uyeler.filter(u => u !== "danisman" && rolu(ekip, u));
+  return KADEME_SIRA.map(([kd, etiket, alias]) => ({ kademe: kd, etiket, alias, uyeler: uyeler.filter(u => kdOf(u) === kd) }));
+}
+const BUTCE_RENK = { bol: "#16A34A", normal: "#0891B2", tasarruf: "#D97706", kritik: "#DC2626" };
+export function semaVerisi(ekip, kosular, o = {}) {
+  const now = o.now ?? Date.now();
+  const pm = alias => o.profil?.modeller?.find(m => m.alias === alias);
+  const kademeler = kademeGruplari(ekip, kosular).map(g => {
+    const m = pm(g.alias);
+    return { kademe: g.kademe, etiket: g.etiket, modelAd: m ? modelAdi(m.id) : g.alias, alt: m ? `${m.gecikme} · ${m.fiyat}` : "",
+      uyeler: g.uyeler.map(u => {
+        const k = durumu(kosular, u);
+        const stat = k ? istatistik(o.adimBellek?.[k.tip], "s") : null;
+        return { ad: u, durum: k ? k.durum : "bekliyor", yuzde: k ? yuzde5(ilerleme(k, stat)) : 0,
+          sure: k ? sureKisa((k.bitis ?? now) - k.baslangic, k.durum !== "calisiyor") : "",
+          gorev: k?.aciklama ?? rolu(ekip, u)?.description ?? "", brif: (o.brifler ?? []).filter(b => b.uye === u).length };
+      }) };
+  });
+  const t = o.tur;
+  const maxTur = t ? Math.min(MAX_TUR, BUTCE_AYAR[t.butce ?? "normal"]?.maxTur ?? MAX_TUR) : MAX_TUR;
+  const tur = !t ? { yazi: "beklemede", renk: "#A1A1AA" } : t.durum === "calisiyor" ? { yazi: `tur ${t.no}/${maxTur} çalışıyor`, renk: "#0EA5E9" }
+    : t.durum === "degerlendiriliyor" ? { yazi: `tur ${t.no} değerlendiriliyor`, renk: "#C026D3" }
+    : t.durum === "durduruldu" ? { yazi: "durduruluyor", renk: "#D97706" } : { yazi: `tamamlandı · ${t.no} tur`, renk: "#16A34A" };
+  const sk = o.sk;
+  const sonKontrol = !sk ? null : sk.durum === "onay" ? { yazi: "son kontrol ✓", renk: "#16A34A" } : sk.durum === "ret" ? { yazi: "son kontrol ✕", renk: "#DC2626" }
+    : sk.durum === "bekliyor" ? { yazi: "son kontrol…", renk: "#C026D3" } : { yazi: "son kontrol ?", renk: "#D97706" };
+  const mesgul = o.taslak?.durum === "hazirlaniyor" || t?.durum === "degerlendiriliyor" || o.dan?.durum === "bekliyor" || sk?.durum === "bekliyor";
+  const fm = pm("fable");
+  return {
+    ekip: { ad: ekip.ad, amac: ekip.amac }, tur, sonKontrol,
+    butce: o.butceDurum ? { yazi: `bütçe ${o.butceDurum.seviye}`, renk: BUTCE_RENK[o.butceDurum.seviye] ?? "#0891B2" } : null,
+    danisman: { model: fm ? modelAdi(fm.id) : "Fable", mesgul,
+      durum: !mesgul ? "hazır" : sk?.durum === "bekliyor" ? "son kontrol" : o.taslak?.durum === "hazirlaniyor" ? "plan yazıyor" : "düşünüyor",
+      is: o.dan?.soru ?? (t ? "" : "görev bekliyor") },
+    kademeler,
+  };
+}
+
 export function register(on) {
   on("session.start", async ($, e, next) => {
     const r = await next(e);
@@ -892,6 +937,7 @@ export function register(on) {
     const { value: butceDurum = null } = await $.state.get(BUTCE);
     const { value: sk = null } = await $.state.get(SON_KONTROL);
     await $.state.get(SURUM);
+    const profil = await modelProfili($);
     const liste = await ekipler($);
     const ekip = await aktifEkip($);
     // Sade modda her genişlikte tek satırlık özet (şerit/sahne yok), spinner yerine sabit nokta.
@@ -907,7 +953,7 @@ export function register(on) {
     const raster = !SADE && Boolean(Raster) && e.surface === "terminal" && (e.props.bodyColumns ?? 80) >= 90;
     const svg = !SADE && Boolean(Svg) && !raster; // Claude Code uygulaması (masaüstü, web, VS Code, mobil): animasyonu uygulama oynatır
     svgYuzey = svg;
-    const uyeSatiri = (u, i) => {
+    const uyeSatiri = (u, i, onek = "") => {
       const k = durumu(kosular, u);
       const r = rolu(ekip, u) ?? { model: "?", rol: "isci" };
       const dan_ = r.rol === "danisman";
@@ -917,7 +963,8 @@ export function register(on) {
       const fableMesgul = dan_ && (taslak?.durum === "hazirlaniyor" || tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor");
       const kosuyor = k && k.durum !== "hata" && k.durum !== "iptal" && !(fableMesgul && k.durum !== "calisiyor");
       const tema = k ? temaSec(i, k.baslangic) : null;
-      const ad = Text({ color: dan_ ? "magenta" : "white", bold: dan_, children: `${dan_ ? "◆" : "▸"} ${u.slice(0, 18).padEnd(19)}` });
+      // Renk yalnız danışmanda: "white" açık temada görünmüyordu (8 Eki 2026 ekran görüntüsü).
+      const ad = Text({ ...(dan_ ? { color: "magenta" } : {}), bold: true, children: `${dan_ ? "◆" : "▸"} ${u.slice(0, 18).padEnd(19)}` });
       const buton = girisVar && elleAcik && i < 9 ? [Text({ children: "  " }), Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: "görev ver", onPress: () => modAyarla({ tur: "gorev", uye: u }) })] : [];
       const sag = kosuyor
         ? [Text({ color: k.durum === "bitti" ? "green" : "cyan", bold: true, children: ` ${yuzde}` }), Text({ dimColor: true, children: ` ${gecen.padStart(5)}` })]
@@ -939,7 +986,7 @@ export function register(on) {
       if (!genis) {
         const ozet = fableMesgul ? `${spin} düşünüyor` : !k ? "· bekliyor" : k.durum === "hata" || k.durum === "iptal" ? `✖ ${k.durum} ${gecen}`
           : `${k.durum === "bitti" ? "✔" : spin} ${yuzde} ${gecen}`;
-        return Box({ key: `u-${u}`, flexDirection: "row", children: [ad, Text({ dimColor: true, children: kisaModel(k?.model ?? r.model).padEnd(7) }),
+        return Box({ key: `u-${u}`, flexDirection: "row", children: [...(onek ? [Text({ dimColor: true, children: onek })] : []), ad, Text({ dimColor: true, children: kisaModel(k?.model ?? r.model).padEnd(7) }),
           Text({ color: fableMesgul ? "magenta" : !k ? "gray" : k.durum === "bitti" ? "green" : k.durum === "calisiyor" ? "cyan" : "red", children: ozet.padEnd(22) }), ...buton] });
       }
       const [ust, alt] = fableMesgul
@@ -1029,16 +1076,38 @@ export function register(on) {
     const durdurDugmesi = tur && (tur.durum === "calisiyor" || tur.durum === "degerlendiriliyor")
       ? [eylem("dur", "p", "Durdur", () => void $.state.set(TUR, { ...tur, durum: "durduruldu" }))] : [];
 
+    // Uygulama yüzeylerinde başlık + ast-üst şeması tek grafik; terminalde aynı hiyerarşi ağaç çizgileriyle.
+    const semaVar = Boolean(Svg) && e.surface !== "terminal";
+    const sema = semaVar ? (() => {
+      const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil });
+      const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
+      return Svg({ key: "sema", source: semaSvg(v), alt });
+    })() : null;
+    const agac = () => {
+      const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);
+      const satirlar = [uyeSatiri("danisman", 0)];
+      let i = 1;
+      gruplar.forEach((g, gi) => {
+        const son = gi === gruplar.length - 1;
+        satirlar.push(Text({ key: `kd-${g.kademe}`, dimColor: true, children: `${son ? "└─" : "├─"} ${g.etiket} · ${g.alias}` }));
+        g.uyeler.forEach((u, ui) => satirlar.push(uyeSatiri(u, i++, `${son ? "   " : "│  "}${ui === g.uyeler.length - 1 ? "└ " : "├ "}`)));
+      });
+      return satirlar;
+    };
+    // Şemada görev düğmeleri yok: elle yönetimde üyeler için ayrı düğme sırası.
+    const uyeDugmeleri = () => girisVar && elleAcik ? [Box({ key: "uyeDug", flexDirection: "row", flexWrap: "wrap", children: ekip.uyeler.slice(0, 9).map((u, i) =>
+      Button({ key: `b-${u}`, hotkey: String(i + 1), plain: true, label: `görev: ${u}`, onPress: () => modAyarla({ tur: "gorev", uye: u }) })) })] : [];
+
     return Box({
       flexDirection: "column", paddingX: 1,
-      children: [
+      children: semaVar ? [sema, ...ortak(uyeDugmeleri())] : [
         Box({ key: "bas", flexDirection: "row", children: [
           Text({ color: "magenta", bold: true, children: `◆ ${ekip.ad}` }),
           Text({ dimColor: true, children: `  ${ekip.amac}` }),
           Text({ color: calisan ? "cyan" : "gray", children: `  ·  ${calisan}/${ekip.uyeler.length} çalışıyor` }),
         ] }),
         ...(ekip.oto || tur || !elleAcik ? [Box({ key: "tur", flexDirection: "row", children: [
-          Text({ dimColor: true, children: `  Fable yönetir · Opus uzman · Sonnet hızlı${tur ? ` · ${tur.yogun ? "yoğun iş" : "basit iş"}` : ""}  ·  ` }),
+          Text({ dimColor: true, children: `  Fable yönetir · Opus uzman · Sonnet hızlı · Haiku hafif${tur ? ` · ${tur.yogun ? "yoğun iş" : "basit iş"}` : ""}  ·  ` }),
           Text({ color: tur?.durum === "bitti" ? "green" : tur?.durum === "durduruldu" ? "yellow" : "cyan", children:
             !tur ? "beklemede" : tur.durum === "calisiyor" ? `${spin} tur ${tur.no}/${Math.min(MAX_TUR, BUTCE_AYAR[tur.butce ?? "normal"]?.maxTur ?? MAX_TUR)} çalışıyor`
               : tur.durum === "degerlendiriliyor" ? `${spin} Fable tur ${tur.no}'i değerlendiriyor`
@@ -1056,6 +1125,13 @@ export function register(on) {
             children: sk.durum === "bekliyor" ? `${spin} danışman kontrol ediyor` : sk.durum === "onay" ? "✔ ONAY" : sk.durum === "ret" ? `✖ RET — ${tek(sk.neden, 50)}` : `⚠ ${tek(sk.neden, 50)}` }),
           Text({ dimColor: true, children: `  ·  ${tek(sk.baslik, 40)}` }),
         ] })] : []),
+        ...ortak([Box({ key: "uyeler", flexDirection: "column", marginTop: 1, children: agac() })]),
+      ],
+    });
+
+    // Plan, giriş, koşular, brifler, danışman çıktısı ve tuşlar: iki görünümde ortak; üye bölümü görünüme göre.
+    function ortak(uyeBolum) {
+      return [
         ...(taslak ? [Box({ key: "taslak", flexDirection: "column", marginTop: 1, children: taslak.durum === "hazirlaniyor"
           ? [Text({ color: "magenta", children: `${spin} Fable ekibi tasarlıyor: ${tek(taslak.hedef, 60)}` })]
           : taslak.durum === "hata"
@@ -1070,7 +1146,7 @@ export function register(on) {
             ] })),
             Text({ dimColor: true, children: "  Onaylarsan üyeler kaydedilir ve görevleri hemen başlar (en güncel Opus)." }),
           ] })] : []),
-        Box({ key: "uyeler", flexDirection: "column", marginTop: 1, children: ekip.uyeler.map(uyeSatiri) }),
+        ...uyeBolum,
         ...giris(),
         Box({ key: "kosular", flexDirection: "column", marginTop: 1, children: [
           Text({ dimColor: true, children: kosular.length ? "Son koşular" : "Henüz koşu yok — görev geldikçe ekip burada çalışır; senin bir şey yapman gerekmez." }),
@@ -1111,7 +1187,7 @@ export function register(on) {
           eylem("elle", "m", "Gizle", elleDegis),
         ] })] : []),
         ...(girisVar ? [] : [Text({ key: "mobil", dimColor: true, children: "Bu yüzeyde yalnız izleme var; yönetim terminal/masaüstünde." })]),
-      ],
-    });
+      ];
+    }
   });
 }

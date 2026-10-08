@@ -1,5 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi } from './ekip.mjs'
+import { semaSvg } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -69,7 +70,8 @@ test('panelden görev ver: tuş → görev kutusu → doğru ajan tipi başlar; 
     const ui = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip',
       props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
     // Firmware olmayan proje → Yazılım ekibi; görev düğmeleri "Elle yönet" arkasında.
-    expect(await ui.find({ type: 'Text', text: /Yazılım ekibi/ })).toBeDefined()
+    if (surface === 'terminal') expect(await ui.find({ type: 'Text', text: /Yazılım ekibi/ })).toBeDefined()
+    else expect(JSON.stringify(await ui.find({ type: 'Svg' } as never))).toMatch(/Yazılım ekibi/)   // uygulamada başlık şemanın içinde
     expect(await ui.find({ type: 'Button', key: 'b-danisman' })).toBeUndefined()
     await ui.press({ key: 'elle' })
     await ui.press({ key: 'b-danisman' })
@@ -186,7 +188,7 @@ test('/ekip kur (otomatik): Fable planı onay beklemeden başlar, her üye göre
   expect(reg).toEqual(expect.arrayContaining(['surucu', 'testci']))
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:surucu', 'ekip:testci'])
   expect(spawned[0].prompt).toBe('uart_dma.c yaz')
-  expect(await ui.find({ type: 'Text', text: /Fable yönetir · Opus uzman · Sonnet hızlı · basit iş/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Fable yönetir · Opus uzman · Sonnet hızlı · Haiku hafif · basit iş/ })).toBeDefined()
   await ui.unmount()
 })
 
@@ -198,7 +200,7 @@ test('hex renk (Clawd turuncusu) motor tarafından kabul edilir', { plugins: [{ 
   await ui.unmount()
 })
 
-test('sade mod: hiçbir yüzeyde sahne/şerit yok, saat ilerleyince blit de yeniden çizim de yok', async ($, on) => {
+test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şeması; saat ilerleyince blit yok', async ($, on) => {
   const saat = mock.clock(on); mock.store(on, {})
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
@@ -213,10 +215,19 @@ test('sade mod: hiçbir yüzeyde sahne/şerit yok, saat ilerleyince blit de yeni
   for (const surface of ['terminal', 'desktop', 'vscode', 'mobile'] as const) {
     const ui = await $.ui.mount({ plugin: 'ekip', surface, component: 'Pane', requestId: 'ekip', props })
     expect(await ui.find({ type: 'Raster' } as never)).toBeUndefined()
-    expect(await ui.find({ type: 'Svg' } as never)).toBeUndefined()
-    const satirlar = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
-    expect(satirlar.some(t => t.startsWith('▸ test-yazici'))).toBe(true)
-    expect(satirlar.some(t => t.startsWith('● ') && /%/.test(t))).toBe(true)   // sabit nokta + yüzde, spinner yok
+    if (surface === 'terminal') {
+      expect(await ui.find({ type: 'Svg' } as never)).toBeUndefined()
+      const satirlar = (await ui.findAll({ type: 'Text' })).map((t: any) => t.text as string)
+      expect(satirlar.some(t => t.startsWith('▸ test-yazici'))).toBe(true)
+      expect(satirlar.some(t => t.startsWith('● ') && /%/.test(t))).toBe(true)   // sabit nokta + yüzde, spinner yok
+      expect(satirlar.some(t => /^[├└]─ Hızlı · sonnet$/.test(t))).toBe(true)     // ast-üst ağacı: kademe başlığı
+    } else {
+      const svgler = await ui.findAll({ type: 'Svg' } as never)
+      expect(svgler).toHaveLength(1)                                              // tek şema, üye başına şerit yok
+      const s = JSON.stringify(svgler[0])
+      expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
+      expect(s).not.toMatch(/isInteractive.?.?:.?true|<animate/)                  // resim, animasyonsuz
+    }
     await ui.unmount()
   }
   await saat.advance(3000)
@@ -365,4 +376,30 @@ test('dinamik strateji: danışman projeye göre yazar, plana eklenir, sonraki k
   expect(cagri.map(c => c.tur)).toEqual(['strateji', 'kur', 'kur'])                     // strateji önbellekten
   const m: any = await $.command.run({ command: 'ekip', args: 'modeller', origin: 'user' } as never)
   expect(m.text).toMatch(/Model profili[\s\S]*claude-haiku-5-5[\s\S]*varsayılan; "\/ekip modeller yenile"/)
+})
+
+test('ekip şeması: kademeler (ast-üst), üye kartları, rozetler; yüzde 5 ve dakika adımı', () => {
+  const ekip: any = { ad: 'Yazılım ekibi', amac: 'x', uyeler: ['danisman', 'kod-inceleyici', 'test-yazici', 'hafif-isci'] }
+  const now = 1_000_000
+  const k: any[] = [
+    { id: 'a', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'calisiyor', adim: 3, baslangic: now - 150_000, aciklama: 'köprü testleri' },
+    { id: 'b', tip: 'ekip:kod-inceleyici', model: 'claude-haiku-5-5', durum: 'bitti', adim: 5, baslangic: now - 90_000, bitis: now - 1000, aciklama: 'diff tara' },
+  ]
+  const v: any = semaVerisi(ekip, k, { now, tur: { no: 1, durum: 'calisiyor', butce: 'tasarruf' }, butceDurum: { seviye: 'tasarruf', ozet: '' }, brifler: [{ uye: 'test-yazici' }], profil: { modeller: [{ alias: 'fable', id: 'claude-fable-5-1' }, { alias: 'opus', id: 'claude-opus-5-5', gecikme: 'orta', fiyat: '$4 / $20' }] } })
+  expect(v.kademeler.map((x: any) => [x.etiket, x.uyeler.map((u: any) => u.ad)])).toEqual([['Uzman', []], ['Hızlı', ['test-yazici']], ['Hafif', ['kod-inceleyici', 'hafif-isci']]])  // gerçek modele göre
+  expect(v.kademeler[0].modelAd).toBe('Opus 5.5')
+  expect(v.kademeler[1].uyeler[0]).toMatchObject({ durum: 'calisiyor', sure: '2 dk', brif: 1 })
+  expect(v.kademeler[1].uyeler[0].yuzde % 5).toBe(0)
+  expect(v.kademeler[2].uyeler[0]).toMatchObject({ durum: 'bitti', yuzde: 100, sure: '1:29' })
+  expect(v.tur.yazi).toBe('tur 1/2 çalışıyor')                                   // tasarrufta 2 tur
+  expect(v.butce.yazi).toBe('bütçe tasarruf')
+  expect(v.danisman).toMatchObject({ model: 'Fable 5.1', durum: 'hazır', mesgul: false })
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/^<svg [^>]*width="640"/)
+  expect(svg).toMatch(/Danışman/)
+  expect(svg).toMatch(/>Uzman<[\s\S]*>Hızlı<[\s\S]*>Hafif</)
+  expect(svg).toMatch(/1 brif/)
+  expect(svg).toMatch(/bu kademede üye yok/)
+  expect(svg).not.toMatch(/<script|<animate|on[a-z]+=/i)
+  expect(semaSvg(semaVerisi(ekip, k, { now: now + 20_000 }))).toBe(semaSvg(semaVerisi(ekip, k, { now: now + 25_000 })))  // 5 sn'de değişmez
 })
