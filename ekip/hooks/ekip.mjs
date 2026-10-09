@@ -377,9 +377,10 @@ function animasyon($) {
 }
 
 function cark($) {
-  if (ticker) return;
+  if (ticker || (SADE && !animAcik)) return; // animasyon kapalıyken zamanlayıcı yok: panel yalnız olayla değişir
   // SADE modda 3 sn'de bir: canlı akışı ve süreleri tazeler; kare kare animasyonu şema kendi SMIL'iyle oynatır.
   ticker = $.clock.every(SADE ? 3000 : 150, async () => {
+    if (SADE && !animAcik) { ticker?.cancel?.(); ticker = null; return; }
     const { value: k = [] } = await $.state.get(KOSULAR);
     const { value: taslak = null } = await $.state.get(TASLAK);
     const { value: tur = null } = await $.state.get(TUR);
@@ -895,7 +896,7 @@ export async function baslat($, uye, gorev, tur, o = {}) {
 const akis = [];
 const sonEylem = new Map(); // üye → şu anki araç çağrısı
 let danOdak = "";           // danışmanın şu an ilgilendiği şey
-let animAcik = true;
+let animAcik = false; // varsayılan KAPALI: çerçeveli (SMIL) çizim her tazelemede yeniden yüklenip kırpışıyordu
 const hhmmss = t => new Date(t).toLocaleTimeString("tr-TR", { hour12: false });
 export function akisEkle(uye, metin, kdm) {
   akis.unshift({ z: hhmmss(Date.now()), uye, metin: tek(metin, 90), kademe: kdm });
@@ -965,7 +966,7 @@ export function register(on) {
     anim = null;
     canli.clear();
     sonKontrolZamani = Date.now(); // yeniden yüklemede eski işler yeniden kontrol edilmesin
-    try { animAcik = (await $.store.get("animasyon")) !== false; } catch {}
+    try { animAcik = (await $.store.get("animasyon")) === true; } catch {}
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}

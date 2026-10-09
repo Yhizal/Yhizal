@@ -226,8 +226,8 @@ test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şe
       expect(svgler).toHaveLength(1)                                              // tek şema, üye başına şerit yok
       const s = JSON.stringify(svgler[0])
       expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
-      expect(s).toMatch(/isInteractive.?.?:.?true/)                               // SMIL animasyonu için sandbox çerçevesi
-      expect(s).toMatch(/<animate attributeName=\\"r\\"/)                          // çalışan üyede atan nokta
+      expect(s).toMatch(/isInteractive.?.?:.?false/)                              // varsayılan: düz resim, çerçeve yok (kırpışmaz)
+      expect(s).toMatch(/Canlı akış|test-yazici/)                                  // akış ve üye yazıyla görünür
     }
     await ui.unmount()
   }
