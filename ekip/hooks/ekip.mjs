@@ -733,6 +733,26 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
   $.ui.toast(k.durum === "onay" ? `✔ Son kontrol ONAY — ${baslik}` : k.durum === "ret" ? `✖ Son kontrol RET — ${tek(k.neden, 60)}` : `⚠ Son kontrol: ${k.neden}`);
 }
 
+// ── İstek kuyruğu: serbest metinler sırayla işlenir; her biri kur'un planlama aşamasını bitirene kadar bekler ──
+let kuyruk = Promise.resolve();
+let bekleyen = 0;
+function kuyrugaEkle(metin, is) {
+  bekleyen++;
+  const sira = bekleyen;
+  kuyruk = kuyruk.then(async () => { try { await is(); } catch {} finally { bekleyen--; } });
+  return sira;
+}
+/** kur'u başlatır ve planın hazır/hata olmasını bekler (en fazla 6 dk). */
+async function kurVeBekle($, hedef) {
+  await kur($, hedef);
+  const t0 = Date.now();
+  while (Date.now() - t0 < 360_000) {
+    const { value: t = null } = await $.state.get(TASLAK);
+    if (!t || t.durum === "hata" || t.durum === "hazir") return;
+    await new Promise(r => setTimeout(r, 1000));
+  }
+}
+
 // Elle ya da ana oturumun verdiği ekip işleri (tursuz): hepsi bitince bir kez danışman kontrol eder.
 export function elleKontrolEdilecek(kosular, sinir) {
   const isci = x => x.tip.startsWith(`${P}:`) && x.tip !== `${P}:danisman` && x.tip !== `${P}:model-izci` && !x.tur;
@@ -859,6 +879,12 @@ export function register(on) {
       const metin = st ? `${st}${kayit?.proje ? `\n\nProje profili: ${kayit.proje}` : ""}` : "Strateji yazılamadı (danışmana ulaşılamadı).";
       await $.state.set(DANISMAN, { soru: "Model stratejisi (bu proje)", cevap: metin, durum: st ? "bitti" : "hata" });
       return { text: metin };
+    }
+    // Serbest metin (alt komut değil): sıraya girer, öncekiler bitmeden başlamaz.
+    if (args) {
+      const sira = kuyrugaEkle(args, () => kurVeBekle($, args));
+      $.ui.toast(`◆ İstek sıraya alındı (${sira} bekliyor)`);
+      return { text: `İstek sıraya alındı (sırada ${sira}). Fable planlayıp işçileri sırayla yönlendirecek; ilerleme panelde.` };
     }
     return { text: "Ajan ekibi paneli açıldı." };
   });
