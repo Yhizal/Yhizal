@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni } from './ekip.mjs'
 import { semaSvg } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -226,7 +226,8 @@ test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şe
       expect(svgler).toHaveLength(1)                                              // tek şema, üye başına şerit yok
       const s = JSON.stringify(svgler[0])
       expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
-      expect(s).not.toMatch(/isInteractive.?.?:.?true|<animate/)                  // resim, animasyonsuz
+      expect(s).toMatch(/isInteractive.?.?:.?true/)                               // SMIL animasyonu için sandbox çerçevesi
+      expect(s).toMatch(/<animate attributeName=\\"r\\"/)                          // çalışan üyede atan nokta
     }
     await ui.unmount()
   }
@@ -400,7 +401,9 @@ test('ekip şeması: kademeler (ast-üst), üye kartları, rozetler; yüzde 5 ve
   expect(svg).toMatch(/>Uzman<[\s\S]*>Hızlı<[\s\S]*>Hafif</)
   expect(svg).toMatch(/1 brif/)
   expect(svg).toMatch(/bu kademede üye yok/)
-  expect(svg).not.toMatch(/<script|<animate|on[a-z]+=/i)
+  expect(svg).not.toMatch(/<script|on[a-z]+=/i)                                    // betik ve olay özniteliği yok
+  expect(svg).toMatch(/<animate attributeName="stroke-dashoffset"/)                // çalışan kola akan bağ
+  expect(semaSvg({ ...v, anim: false })).not.toMatch(/<animate/)                   // animasyon anahtarı kapalıysa düz resim
   expect(semaSvg(semaVerisi(ekip, k, { now: now + 20_000 }))).toBe(semaSvg(semaVerisi(ekip, k, { now: now + 25_000 })))  // 5 sn'de değişmez
 })
 
@@ -435,4 +438,27 @@ test('denetmen planı kuyruğu uygular: sıra, çıkarma ve birleştirme', () =>
   expect(uygulaPlan(items, { sira: [2, 0], cikar: [1], birlestir: [] } as never, fab).map(x => x.metin)).toEqual(['C', 'A'])
   expect(uygulaPlan(items, { sira: [], cikar: [], birlestir: [{ a: 0, b: 2, metin: 'AC' }] } as never, fab).map(x => x.metin)).toEqual(['AC', 'B'])
   expect(uygulaPlan(items, { sira: [], cikar: [], birlestir: [] } as never, fab).map(x => x.metin)).toEqual(['A', 'B', 'C'])
+})
+
+test('canlı akış: eylem metni, ÖZET satırı; akış şemada en yeni üstte, danışman odağı ve çalışan üyenin şu anki eylemi görünür', () => {
+  expect(eylemMetni({ tool: 'Read', file_path: 'C:\\proje\\src\\ekip.mjs' })).toBe('Read src/ekip.mjs')
+  expect(eylemMetni({ tool: 'Bash', command: 'pytest -q' })).toBe('Bash pytest -q')
+  expect(eylemMetni({ tool: 'Grep' })).toBe('Grep')
+  expect(ozetSatiri('x\nÖZET: 3 test eklendi\n| a |')).toBe('3 test eklendi')
+  expect(ozetSatiri('özet yok')).toBe('')
+  akisEkle('kod-inceleyici', 'Read src/ekip.mjs', 'uzman')
+  akisEkle('danisman', 'brif #1 → kod-inceleyici (yön): kapsam daraldı', 'danışman')
+  const ekip: any = { ad: 'Yazılım ekibi', amac: 'x', uyeler: ['danisman', 'test-yazici'] }
+  const now = 5_000_000
+  const k: any[] = [{ id: 'a', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'bitti', adim: 4, baslangic: now - 60_000, bitis: now - 1000, aciklama: 'testler', ozet: '3 test eklendi' }]
+  const v: any = semaVerisi(ekip, k, { now, tur: { no: 1, durum: 'degerlendiriliyor' } })
+  expect(v.akis[0].uye).toBe('danisman')                                            // en yeni üstte
+  expect(v.danisman.mesgul).toBe(true)
+  expect(v.danisman.odak).toMatch(/brif #1/)                                        // danışman neyle ilgileniyor
+  expect(v.kademeler[1].uyeler[0].ozet).toBe('3 test eklendi')                      // tespit
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/Canlı akış/)
+  expect(svg).toMatch(/>danisman<[\s\S]*>kod-inceleyici</)
+  expect(svg).toMatch(/✓ 3 test eklendi/)                                           // biten üye kartında bulgu
+  expect(semaSvg({ ...v, anim: false })).not.toMatch(/<animate/)
 })

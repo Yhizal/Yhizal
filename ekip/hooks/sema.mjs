@@ -42,10 +42,12 @@ function danismanKart(d, y) {
     <circle cx="30" cy="29" r="17" fill="${renk}"/><text x="30" y="34.5" text-anchor="middle" font-size="15" font-weight="800" fill="#FFFFFF">F</text>
     <text x="56" y="22" font-size="13" font-weight="700" class="yazi">Danışman</text>
     <text x="126" y="22" font-size="11" class="mut">${k(d.model)} · yönetir, denetler</text>
-    <circle cx="60" cy="39" r="3.5" fill="${durumRenk}"/>
+    ${d.mesgul && d.anim ? `<circle cx="60" cy="39" r="3.5" fill="${durumRenk}"><animate attributeName="r" values="3.5;5.5;3.5" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.35;1" dur="1.2s" repeatCount="indefinite"/></circle>` : `<circle cx="60" cy="39" r="3.5" fill="${durumRenk}"/>`}
     <text x="69" y="43" font-size="11" font-weight="600" fill="${durumRenk}">${k(d.durum)}</text>
-    <text x="${69 + Math.round(String(d.durum).length * 6.3) + 8}" y="43" font-size="10.5" class="mut">${k(kisalt(d.is, 30))}</text></g>`;
+    <text x="${69 + Math.round(String(d.durum).length * 6.3) + 8}" y="43" font-size="10.5" class="mut">${k(kisalt(d.odak || d.is, 34))}</text></g>`;
 }
+/** Akan kesikli bağ: iş akışının hangi kola indiğini gösterir (animasyon kapalıysa düz renkli çizgi). */
+const akim = (yol, renk, anim) => `<path d="${yol}" stroke="${renk}" stroke-width="2" ${anim ? 'stroke-dasharray="4 4"' : ""} fill="none">${anim ? '<animate attributeName="stroke-dashoffset" from="8" to="0" dur="0.7s" repeatCount="indefinite"/>' : ""}</path>`;
 
 /** Kademe başlığı: renkli şerit, kademe adı, model, hız/fiyat. */
 function kademeBaslik(kd, x, y, w) {
@@ -58,17 +60,24 @@ function kademeBaslik(kd, x, y, w) {
 }
 
 /** Üye kartı: durum noktası, ad, yüzde ve süre, ilerleme çubuğu, görev; brif rozeti. */
-function uyeKart(u, x, y, w) {
+function uyeKart(u, x, y, w, anim = false) {
   const renk = DURUM_RENK[u.durum] ?? DURUM_RENK.bekliyor;
   const ikon = u.durum === "bitti" ? "✓" : u.durum === "hata" || u.durum === "iptal" ? "✕" : "";
   const sag = u.durum === "bekliyor" ? "bekliyor" : `${u.yuzde}% · ${u.sure}`;
   const bw = w - 24, dolu = Math.round(bw * Math.min(100, u.yuzde) / 100);
+  const calisiyor = u.durum === "calisiyor";
+  // Satır 3: çalışırken şu anki eylem, bitince bulgu (ÖZET), yoksa görev.
+  const satir3 = calisiyor && u.simdi ? `▸ ${u.simdi}` : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.gorev || "görev bekliyor";
+  const nokta = calisiyor && anim
+    ? `<circle cx="14" cy="15" r="5" fill="${renk}"><animate attributeName="r" values="4;6.5;4" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="1.2s" repeatCount="indefinite"/></circle>`
+    : `<circle cx="14" cy="15" r="5" fill="${renk}"/>`;
+  const isilti = calisiyor && anim && dolu > 22 ? `<rect x="12" y="27" width="14" height="4" rx="2" fill="#FFFFFF" fill-opacity=".6"><animate attributeName="x" values="12;${12 + dolu - 14};12" dur="1.8s" repeatCount="indefinite"/></rect>` : "";
   return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="53" rx="8" class="kart"/>
-    <circle cx="14" cy="15" r="5" fill="${renk}"/>${ikon ? `<text x="14" y="18.5" text-anchor="middle" font-size="8" font-weight="800" fill="#FFFFFF">${ikon}</text>` : ""}
+    ${nokta}${ikon ? `<text x="14" y="18.5" text-anchor="middle" font-size="8" font-weight="800" fill="#FFFFFF">${ikon}</text>` : ""}
     <text x="25" y="19" font-size="12" font-weight="700" class="yazi">${k(kisalt(u.ad, Math.round((w - 90) / 6.8)))}</text>
     <text x="${w - 10}" y="19" text-anchor="end" font-size="10.5" font-weight="600" fill="${u.durum === "bekliyor" ? "#A1A1AA" : renk}">${k(sag)}</text>
-    <rect x="12" y="27" width="${bw}" height="4" rx="2" class="trk"/>${dolu > 0 ? `<rect x="12" y="27" width="${Math.max(4, dolu)}" height="4" rx="2" fill="${renk}"/>` : ""}
-    <text x="12" y="45" font-size="10" class="mut">${k(kisalt(u.gorev || "görev bekliyor", Math.round((w - (u.brif ? 60 : 20)) / 5.2)))}</text>
+    <rect x="12" y="27" width="${bw}" height="4" rx="2" class="trk"/>${dolu > 0 ? `<rect x="12" y="27" width="${Math.max(4, dolu)}" height="4" rx="2" fill="${renk}"/>` : ""}${isilti}
+    <text x="12" y="45" font-size="10" ${calisiyor && u.simdi ? `font-weight="600" fill="${renk}"` : 'class="mut"'}>${k(kisalt(satir3, Math.round((w - (u.brif ? 60 : 20)) / 5.2)))}</text>
     ${u.brif ? `<g transform="translate(${w - 50} 36)"><rect width="40" height="13" rx="6.5" fill="${KADEME_RENK.danışman}" fill-opacity=".14"/><text x="20" y="9.5" text-anchor="middle" font-size="8.5" font-weight="700" fill="${KADEME_RENK.danışman}">${u.brif} brif</text></g>` : ""}</g>`;
 }
 
@@ -80,28 +89,52 @@ export function semaSvg(m) {
   const KY = 72, BUS = 150, KB = 162, UY = 212, UH = 54, UG = 8;
   const n = m.kademeler.length || 1, gap = 10, cw = Math.floor((SW - gap * (n - 1)) / n);
   const enCok = Math.max(1, ...m.kademeler.map(kd => kd.uyeler.length));
-  const H = UY + enCok * (UH + UG) + 26;
+  const anim = m.anim !== false;
+  const akis = (m.akis ?? []).slice(0, 8);
+  const akisY = UY + enCok * (UH + UG) + 6;
+  const akisH = akis.length ? 24 + akis.length * 15 : 0;
+  const H = akisY + akisH + 26;
   const sx = i => Math.round(i * (cw + gap));
   const orta = i => Math.round(sx(i) + cw / 2);
+  const calisanKademe = m.kademeler.map(kd => kd.uyeler.some(u => u.durum === "calisiyor"));
+  const aktif = calisanKademe.some(Boolean) || m.danisman.mesgul;
   // Ast-üst bağları: danışmandan veri yoluna, yoldan her kademeye; kademeden üye kartlarına sol ray.
   let cizgiler = `<path d="M${SW / 2} ${KY + 58} V${BUS}" class="cizgi" stroke-width="1.5" fill="none"/>`;
   if (n > 1) cizgiler += `<path d="M${orta(0)} ${BUS} H${orta(n - 1)}" class="cizgi" stroke-width="1.5" fill="none"/>`;
+  if (aktif) cizgiler += akim(`M${SW / 2} ${KY + 58} V${BUS}`, KADEME_RENK.danışman, anim);
   m.kademeler.forEach((kd, i) => {
+    const renk = KADEME_RENK[kd.kademe] ?? "#71717A";
     cizgiler += `<path d="M${orta(i)} ${BUS} V${KB}" class="cizgi" stroke-width="1.5" fill="none"/>`;
+    if (calisanKademe[i]) {
+      // Akış danışmandan yola, oradan çalışan kademeye iner.
+      cizgiler += akim(`M${SW / 2} ${BUS} H${orta(i)} V${KB}`, renk, anim);
+    }
     if (kd.uyeler.length) {
       const rx = sx(i) + 10, son = UY + (kd.uyeler.length - 1) * (UH + UG) + UH / 2;
       cizgiler += `<path d="M${rx} ${KB + 40} V${son}" class="cizgi" stroke-width="1.5" fill="none"/>`;
-      kd.uyeler.forEach((_, j) => { const yy = UY + j * (UH + UG) + UH / 2; cizgiler += `<path d="M${rx} ${yy} H${rx + 10}" class="cizgi" stroke-width="1.5" fill="none"/>`; });
+      kd.uyeler.forEach((u, j) => {
+        const yy = UY + j * (UH + UG) + UH / 2;
+        cizgiler += `<path d="M${rx} ${yy} H${rx + 10}" class="cizgi" stroke-width="1.5" fill="none"/>`;
+        if (u.durum === "calisiyor") cizgiler += akim(`M${rx} ${KB + 40} V${yy} H${rx + 10}`, renk, anim);
+      });
     }
   });
   const sutunlar = m.kademeler.map((kd, i) =>
     kademeBaslik(kd, sx(i), KB, cw) +
-    (kd.uyeler.length ? kd.uyeler.map((u, j) => uyeKart(u, sx(i) + 20, UY + j * (UH + UG), cw - 20)).join("")
+    (kd.uyeler.length ? kd.uyeler.map((u, j) => uyeKart(u, sx(i) + 20, UY + j * (UH + UG), cw - 20, anim)).join("")
       : `<text x="${orta(i)}" y="${UY + 20}" text-anchor="middle" font-size="10.5" class="mut">bu kademede üye yok</text>`)).join("");
   const lejant = [["calisiyor", "çalışıyor"], ["bitti", "bitti"], ["hata", "hata"], ["bekliyor", "bekliyor"]]
     .map(([d, t], i) => `<circle cx="${14 + i * 86}" cy="${H - 10}" r="4" fill="${DURUM_RENK[d]}"/><text x="${22 + i * 86}" y="${H - 6.5}" font-size="10" class="mut">${t}</text>`).join("");
+  // Canlı akış: en yeni olay üstte; renk olayı yapan üyenin kademesi (danışman mor).
+  const akisSvg = akis.length ? `<g transform="translate(0 ${akisY})"><rect x=".5" y=".5" width="${SW - 1}" height="${akisH - 4}" rx="8" class="kart"/>
+    <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Canlı akış</text>
+    ${anim ? `<circle cx="84" cy="12.5" r="3" fill="#DC2626"><animate attributeName="opacity" values="1;.2;1" dur="1.4s" repeatCount="indefinite"/></circle>` : ""}
+    ${akis.map((a, i) => `<g transform="translate(0 ${24 + i * 15})"><text x="12" y="9" font-size="9.5" class="mut">${k(a.z)}</text>
+      <circle cx="68" cy="6" r="3.5" fill="${KADEME_RENK[a.kademe] ?? KADEME_RENK.danışman}"/>
+      <text x="78" y="9" font-size="10.5" font-weight="${i === 0 ? 700 : 600}" class="yazi">${k(kisalt(a.uye, 16))}</text>
+      <text x="170" y="9" font-size="10.5" class="${i === 0 ? "yazi" : "mut"}">${k(kisalt(a.metin, 78))}</text></g>`).join("")}</g>` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${H}" viewBox="0 0 ${SW} ${H}" font-family="${FONT}">${STIL}
-    ${baslik(m)}${cizgiler}${danismanKart(m.danisman, KY)}${sutunlar}${lejant}
+    ${baslik(m)}${cizgiler}${danismanKart({ ...m.danisman, anim }, KY)}${sutunlar}${akisSvg}${lejant}
     <text x="${SW - 4}" y="${H - 6.5}" text-anchor="end" font-size="10" class="mut">ast-üst: danışman → kademe → üye</text></svg>`;
 }
 

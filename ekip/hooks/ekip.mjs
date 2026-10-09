@@ -377,8 +377,9 @@ function animasyon($) {
 }
 
 function cark($) {
-  if (ticker || SADE) return;
-  ticker = $.clock.every(150, async () => {
+  if (ticker) return;
+  // SADE modda 3 sn'de bir: canlı akışı ve süreleri tazeler; kare kare animasyonu şema kendi SMIL'iyle oynatır.
+  ticker = $.clock.every(SADE ? 3000 : 150, async () => {
     const { value: k = [] } = await $.state.get(KOSULAR);
     const { value: taslak = null } = await $.state.get(TASLAK);
     const { value: tur = null } = await $.state.get(TUR);
@@ -532,6 +533,7 @@ const stratejiBolumu = st => (st ? `\n\nMODEL STRATEJİSİ (bu proje, danışman
 
 async function kur($, hedef) {
   await $.state.set(TASLAK, { durum: "hazirlaniyor", hedef });
+  akisEkle("danisman", `plan yazıyor: ${tek(hedef, 60)}`, "danışman");
   cark($);
   const b = await butceAl($);
   const st = await strateji($);
@@ -628,6 +630,7 @@ export async function araBrif($, tetik, kaynak) {
   const g = await $.session.send({ to: { agentId: hedef.id }, text: brifMetni(no, b) });
   if (g?.deny) { $.ui.toast(`ekip: brif #${no} ${b.uye}'e gitmedi — ${String(g.deny).slice(0, 60)}`); return; }
   await $.state.set(BRIFLER, [...br, { no, uye: b.uye, eylem: b.eylem, tetik, neden: b.neden, zaman: Date.now() }]);
+  akisEkle("danisman", `brif #${no} → ${b.uye} (${b.eylem === "yon" ? "yön" : b.eylem}): ${tek(b.neden, 50)}`, "danışman");
   if (b.eylem === "yeniden_ata") await baslat($, b.uye, b.yeniGorev, tur.no, { model: b.yeniModel, yogun: true });
   $.ui.toast(`◆ Brif #${no} → ${b.uye} (${b.eylem === "yon" ? "yön" : b.eylem === "durdur" ? "durdur" : `yeniden ata: ${kademe(b.yeniModel)}`}): ${tek(b.neden, 60)}`);
 }
@@ -663,6 +666,7 @@ async function turBitti($, no) {
   if (!ekip.oto) return;
   const yogun = Boolean(tur.yogun);
   await $.state.set(TUR, { ...tur, durum: "degerlendiriliyor" });
+  akisEkle("danisman", `tur ${no} çıktılarını değerlendiriyor`, "danışman");
   await $.state.set(DANISMAN, { soru: `Tur ${no} değerlendirmesi`, durum: "bekliyor" });
   cark($);
   const { value: br = [] } = await $.state.get(BRIFLER);
@@ -717,6 +721,7 @@ async function sonKontrol($, kapsam) {
   const b = kapsam.butce ?? await butceAl($);
   const prompt = sonKontrolPrompt(kapsam);
   await $.state.set(SON_KONTROL, { durum: "bekliyor", baslik: kapsam.baslik });
+  akisEkle("danisman", `son kontrol: ${tek(kapsam.baslik, 50)}`, "danışman");
   await $.state.set(DANISMAN, { soru: `Son kontrol — ${kapsam.baslik}`, durum: "bekliyor" });
   if (b.ayar.sonKontrol === "tam") {
     const r = await baslat($, "danisman", prompt);
@@ -752,6 +757,7 @@ async function denetle($) {
   const { value: sk = null } = await $.state.get(SON_KONTROL);
   const prompt = denetmenIstemi({ kosular: k.filter(x => !x.tip.endsWith(":model-izci")), bekleyenler: bekleyenIsler.map(x => x.metin), brifler: br, sonKontrol: sk });
   await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
+  akisEkle("danisman", `denetmen bütünü gözden geçiriyor (${bekleyenIsler.length} bekleyen)`, "danışman");
   const r = await fable($, { system: DENETMEN_SISTEM, prompt, maxTokens: 1500, timeoutMs: 120_000 });
   const plan = r.isAnswered ? denetmenPlanDogrula(jsonAl(r.text), bekleyenIsler.length) : null;
   if (plan) {
@@ -884,6 +890,25 @@ export async function baslat($, uye, gorev, tur, o = {}) {
   return r;
 }
 
+// ── Canlı akış: kim ne yapıyor. Modül değişkeni (state değil): her araç çağrısı paneli yeniden çizdirmesin;
+// panel akışı 3 sn'lik canlı sayaçla (cark) okur. ──
+const akis = [];
+const sonEylem = new Map(); // üye → şu anki araç çağrısı
+let danOdak = "";           // danışmanın şu an ilgilendiği şey
+let animAcik = true;
+const hhmmss = t => new Date(t).toLocaleTimeString("tr-TR", { hour12: false });
+export function akisEkle(uye, metin, kdm) {
+  akis.unshift({ z: hhmmss(Date.now()), uye, metin: tek(metin, 90), kademe: kdm });
+  if (akis.length > 40) akis.length = 40;
+  if (uye === "danisman") danOdak = tek(metin, 60);
+}
+export const ozetSatiri = cikti => { const m = String(cikti ?? "").match(/ÖZET:\s*(.+)/i); return m ? tek(m[1], 90) : ""; };
+export function eylemMetni(e) {
+  const hedef = e.file_path ?? e.path ?? e.command ?? e.pattern ?? e.url ?? e.query ?? "";
+  const kisa = tek(String(hedef).split(/[\\/]/).slice(-2).join("/"), 40);
+  return `${e.tool ?? e.name ?? "araç"}${kisa ? ` ${kisa}` : ""}`;
+}
+
 // ── Ekip şeması verisi: kademe grupları (ast-üst), üye durumları, başlık rozetleri ──
 const KADEME_SIRA = [["uzman", "Uzman", "opus"], ["hızlı", "Hızlı", "sonnet"], ["hafif", "Hafif", "haiku"]];
 export const modelAdi = id => String(id ?? "").replace(/^claude-/, "").replace(/-(\d+)-(\d+)$/, " $1.$2").replace(/^./, c => c.toUpperCase());
@@ -905,7 +930,8 @@ export function semaVerisi(ekip, kosular, o = {}) {
         const stat = k ? istatistik(o.adimBellek?.[k.tip], "s") : null;
         return { ad: u, durum: k ? k.durum : "bekliyor", yuzde: k ? yuzde5(ilerleme(k, stat)) : 0,
           sure: k ? sureKisa((k.bitis ?? now) - k.baslangic, k.durum !== "calisiyor") : "",
-          gorev: k?.aciklama ?? rolu(ekip, u)?.description ?? "", brif: (o.brifler ?? []).filter(b => b.uye === u).length };
+          gorev: k?.aciklama ?? rolu(ekip, u)?.description ?? "", brif: (o.brifler ?? []).filter(b => b.uye === u).length,
+          simdi: k?.durum === "calisiyor" ? sonEylem.get(u) ?? "" : "", ozet: k?.ozet ?? "" };
       }) };
   });
   const t = o.tur;
@@ -923,8 +949,9 @@ export function semaVerisi(ekip, kosular, o = {}) {
     butce: o.butceDurum ? { yazi: `bütçe ${o.butceDurum.seviye}`, renk: BUTCE_RENK[o.butceDurum.seviye] ?? "#0891B2" } : null,
     danisman: { model: fm ? modelAdi(fm.id) : "Fable", mesgul,
       durum: !mesgul ? "hazır" : sk?.durum === "bekliyor" ? "son kontrol" : o.taslak?.durum === "hazirlaniyor" ? "plan yazıyor" : "düşünüyor",
-      is: o.dan?.soru ?? (t ? "" : "görev bekliyor") },
-    kademeler,
+      is: o.dan?.soru ?? (t ? "" : "görev bekliyor"), odak: mesgul ? danOdak : "" },
+    kademeler, anim: o.anim !== false,
+    akis: akis.slice(0, 8),
   };
 }
 
@@ -938,10 +965,11 @@ export function register(on) {
     anim = null;
     canli.clear();
     sonKontrolZamani = Date.now(); // yeniden yüklemede eski işler yeniden kontrol edilmesin
+    try { animAcik = (await $.store.get("animasyon")) !== false; } catch {}
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | kurallar | modeller [yenile] | strateji [yenile] | <serbest istek, sıraya girer>]" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | animasyon [kapat] | kurallar | modeller [yenile] | strateji [yenile] | <serbest istek, sıraya girer>]" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
@@ -975,6 +1003,12 @@ export function register(on) {
       return { text: metin };
     }
     // Serbest metin (alt komut değil): sıraya girer, öncekiler bitmeden başlamaz.
+    if (/^animasyon\b/i.test(args)) {
+      animAcik = !/kapat|kapal[ıi]|off/i.test(args);
+      await $.store.set("animasyon", animAcik);
+      await $.state.set(FRAME, ((await $.state.get(FRAME)).value ?? 0) + 1);
+      return { text: `Panel animasyonu ${animAcik ? "AÇIK" : "KAPALI (şema statik resim)"}` };
+    }
     if (/^denetle\b/i.test(args)) {
       await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
       const metin = await denetle($);
@@ -1021,7 +1055,7 @@ export function register(on) {
     const i = k.findIndex(x => x.id === e.agentId);
     if (i < 0) return r;
     const durum = e.isAborted ? "iptal" : e.reason && e.reason !== "answer" ? "hata" : "bitti";
-    const kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000) };
+    const kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000), ozet: ozetSatiri(e.answer) };
     await $.state.set(KOSULAR, k.map((x, j) => (j === i ? kosu : x)));
     if (durum === "bitti" && (kosu.adim ?? 0) > 0) {
       const { value: b = {} } = await $.state.get(ADIM_BELLEK);
@@ -1031,6 +1065,8 @@ export function register(on) {
     }
     const ad = kosu.tip.startsWith(`${P}:`) ? kosu.tip.slice(P.length + 1) : kosu.tip;
     $.ui.toast(`${durum === "bitti" ? "✔" : "✖"} ${ad} ${durum} (${sure(kosu.bitis - kosu.baslangic)})`);
+    akisEkle(ad, `${durum === "bitti" ? "tamamladı" : durum}${kosu.ozet ? ` — ${kosu.ozet}` : ""} (${sure(kosu.bitis - kosu.baslangic)})`, kademe(kosu.model));
+    sonEylem.delete(ad);
     const { value: inc = null } = await $.state.get(INCELEME);
     if (inc === e.agentId) {
       await $.state.set(DANISMAN, { soru: "Ekip çıktılarını incele", cevap: kosu.cikti, durum: durum === "bitti" ? "bitti" : "hata" });
@@ -1043,6 +1079,20 @@ export function register(on) {
     if (kosu.tur) void turIlerle($, kosu, ad).catch(err => $.ui.toast(`ekip: tur akışı hatası — ${String(err).slice(0, 80)}`));
     else void elleSonKontrol($).catch(err => $.ui.toast(`ekip: son kontrol hatası — ${String(err).slice(0, 80)}`));
     return r;
+  });
+
+  // Canlı akış: ekip işçilerinin her araç çağrısı "şu an ne yapıyor" olarak kaydedilir.
+  on("tool.call", async ($, e, next) => {
+    if (e.agentId) {
+      const { value: k = [] } = await $.state.get(KOSULAR);
+      const kosu = k.find(x => x.id === e.agentId);
+      if (kosu?.tip.startsWith(`${P}:`)) {
+        const uye = kosu.tip.slice(P.length + 1), m = eylemMetni(e);
+        sonEylem.set(uye, m);
+        akisEkle(uye, m, kademe(kosu.model));
+      }
+    }
+    return next(e);
   });
 
   on("turn.step", async function* ($, e, next) {
@@ -1209,9 +1259,9 @@ export function register(on) {
     // Uygulama yüzeylerinde başlık + ast-üst şeması tek grafik; terminalde aynı hiyerarşi ağaç çizgileriyle.
     const semaVar = Boolean(Svg) && e.surface !== "terminal";
     const sema = semaVar ? (() => {
-      const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil });
+      const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: semaSvg(v), alt });
+      return Svg({ key: "sema", source: semaSvg(v), alt, isInteractive: animAcik }); // SMIL animasyonu için sandbox çerçevesi
     })() : null;
     const agac = () => {
       const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);
