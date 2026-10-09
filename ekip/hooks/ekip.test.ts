@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi } from './ekip.mjs'
 import { semaSvg } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -402,4 +402,18 @@ test('ekip şeması: kademeler (ast-üst), üye kartları, rozetler; yüzde 5 ve
   expect(svg).toMatch(/bu kademede üye yok/)
   expect(svg).not.toMatch(/<script|<animate|on[a-z]+=/i)
   expect(semaSvg(semaVerisi(ekip, k, { now: now + 20_000 }))).toBe(semaSvg(semaVerisi(ekip, k, { now: now + 25_000 })))  // 5 sn'de değişmez
+})
+
+test('denetmen: bütün istemi tamamlanan işleri, bekleyen istekleri ve briflerini birlikte taşır', () => {
+  const p = denetmenIstemi({
+    kosular: [{ tip: 'ekip:kod-inceleyici', durum: 'bitti', adim: 4, aciklama: 'diff incele', cikti: 'ÖZET: ok' }, { tip: 'ekip:model-izci', durum: 'bitti', aciklama: 'profil' }],
+    bekleyenler: ['ADC ekle', 'README güncelle'],
+    brifler: [{ no: 1, uye: 'test-yazici', eylem: 'yon', neden: 'kapsam daraldı' }],
+    sonKontrol: { durum: 'onay', baslik: 'ADC' },
+  } as never)
+  expect(p).toMatch(/kod-inceleyici \(bitti, 4 adım\): diff incele → ÖZET: ok/)
+  expect(p).toMatch(/1\. ADC ekle\n2\. README güncelle/)      // sıra korunur
+  expect(p).toMatch(/#1 → test-yazici \(yon\)/)
+  expect(p).toMatch(/Son kontrol: onay — ADC/)
+  expect(denetmenIstemi({ kosular: [], bekleyenler: [], brifler: [], sonKontrol: null } as never)).toMatch(/henüz iş yok[\s\S]*Bekleyen istekler \(sırayla\):\nyok/)
 })

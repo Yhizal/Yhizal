@@ -733,13 +733,46 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
   $.ui.toast(k.durum === "onay" ? `✔ Son kontrol ONAY — ${baslik}` : k.durum === "ret" ? `✖ Son kontrol RET — ${tek(k.neden, 60)}` : `⚠ Son kontrol: ${k.neden}`);
 }
 
-// ── İstek kuyruğu: serbest metinler sırayla işlenir; her biri kur'un planlama aşamasını bitirene kadar bekler ──
+// ── Denetmen: tek komut ya da tek koda değil bütüne bakar. Tamamlanan işleri, bekleyen istekleri,
+// briflerini ve son kontrol sonuçlarını birlikte okuyup çakışmaları, boşlukları ve sıradaki önceliği çıkarır. ──
+const DENETMEN_SISTEM = `Sen ekip denetmenisin (Fable). Tek bir komuta ya da tek bir koda değil, tüm işlerin bütününe bak. ${KULLANICI}
+Yapacakların: (1) tamamlanan işlerin birbiriyle çelişip çelişmediğini ve aynı dosyaya dokunup dokunmadığını bul; (2) bekleyen istekleri birleştirilebilirse birleştir, gereksizleri ele, sırayı önceliğe göre öner; (3) hedefe göre eksik kalan parçaları ve açık uçları say; (4) bir sonraki adımı tek satırda söyle. Kod yazma.
+Biçim (≤15 satır): "Durum" tek cümle; tablo | İş | Durum | Çakışma/Risk | Sıra |; "Öneri" en fazla 3 madde; son satır "DENETİM: TAMAM" ya da "DENETİM: DİKKAT — <neden>".`;
+export function denetmenIstemi({ kosular, bekleyenler, brifler, sonKontrol }) {
+  const isler = kosular.slice(-12).map(x => `- ${String(x.tip).replace(/^ekip:/, "")} (${x.durum}, ${x.adim ?? 0} adım): ${tek(x.aciklama, 80)}${x.cikti ? ` → ${tek(x.cikti, 160)}` : ""}`).join("\n") || "- henüz iş yok";
+  const bek = bekleyenler.length ? bekleyenler.map((t, i) => `${i + 1}. ${tek(t, 160)}`).join("\n") : "yok";
+  const br = brifler.slice(-5).map(b => `- #${b.no} → ${b.uye} (${b.eylem}): ${tek(b.neden, 100)}`).join("\n") || "yok";
+  return `BÜTÜN DENETİMİ\n\nTamamlanan ve çalışan işler:\n${isler}\n\nBekleyen istekler (sırayla):\n${bek}\n\nAra brifler:\n${br}\n\nSon kontrol: ${sonKontrol ? `${sonKontrol.durum} — ${sonKontrol.baslik}` : "yok"}`;
+}
+async function denetle($) {
+  const { value: k = [] } = await $.state.get(KOSULAR);
+  const { value: br = [] } = await $.state.get(BRIFLER);
+  const { value: sk = null } = await $.state.get(SON_KONTROL);
+  const prompt = denetmenIstemi({ kosular: k.filter(x => !x.tip.endsWith(":model-izci")), bekleyenler: kuyrukMetinleri, brifler: br, sonKontrol: sk });
+  await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
+  const r = await fable($, { system: DENETMEN_SISTEM, prompt, maxTokens: 1500, timeoutMs: 120_000 });
+  const metin = r.isAnswered ? r.text : `Denetim alınamadı: ${r.reason}`;
+  await $.state.set(DANISMAN, { soru: "Bütün denetimi", cevap: metin.slice(0, 9000), durum: r.isAnswered ? "bitti" : "hata", ...notu(r) });
+  return metin;
+}
+
+// ── İstek kuyruğu: serbest metinler sırayla işlenir; her biri kur'un planlama aşamasını bitirene kadar bekler.
+// Kuyruk boşalınca denetmen bütünü gözden geçirir. ──
 let kuyruk = Promise.resolve();
 let bekleyen = 0;
-function kuyrugaEkle(metin, is) {
+const kuyrukMetinleri = [];
+function kuyrugaEkle(metin, is, bittiginde) {
   bekleyen++;
+  kuyrukMetinleri.push(metin);
   const sira = bekleyen;
-  kuyruk = kuyruk.then(async () => { try { await is(); } catch {} finally { bekleyen--; } });
+  kuyruk = kuyruk.then(async () => {
+    try { await is(); } catch {}
+    finally {
+      kuyrukMetinleri.shift();
+      bekleyen--;
+      if (bekleyen === 0) await bittiginde().catch(() => {});
+    }
+  });
   return sira;
 }
 /** kur'u başlatır ve planın hazır/hata olmasını bekler (en fazla 6 dk). */
@@ -847,7 +880,7 @@ export function register(on) {
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | kurallar | modeller [yenile] | strateji [yenile]]" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | kurallar | modeller [yenile] | strateji [yenile] | <serbest istek, sıraya girer>]" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
@@ -881,8 +914,13 @@ export function register(on) {
       return { text: metin };
     }
     // Serbest metin (alt komut değil): sıraya girer, öncekiler bitmeden başlamaz.
+    if (/^denetle\b/i.test(args)) {
+      await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
+      const metin = await denetle($);
+      return { text: metin };
+    }
     if (args) {
-      const sira = kuyrugaEkle(args, () => kurVeBekle($, args));
+      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($));
       $.ui.toast(`◆ İstek sıraya alındı (${sira} bekliyor)`);
       return { text: `İstek sıraya alındı (sırada ${sira}). Fable planlayıp işçileri sırayla yönlendirecek; ilerleme panelde.` };
     }
