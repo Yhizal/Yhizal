@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan } from './ekip.mjs'
 import { semaSvg } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -416,4 +416,23 @@ test('denetmen: bütün istemi tamamlanan işleri, bekleyen istekleri ve brifler
   expect(p).toMatch(/#1 → test-yazici \(yon\)/)
   expect(p).toMatch(/Son kontrol: onay — ADC/)
   expect(denetmenIstemi({ kosular: [], bekleyenler: [], brifler: [], sonKontrol: null } as never)).toMatch(/henüz iş yok[\s\S]*Bekleyen istekler \(sırayla\):\nyok/)
+})
+
+test('denetmen planı: geçersiz indeks, tanınmayan kademe ve boş birleştirme atlanır', () => {
+  const p: any = denetmenPlanDogrula({ sira: [2, 0, 9], cikar: [1], birlestir: [[0, 2, 'birleşik'], [5, 0, 'x']], kademe: { 'Test Yazıcı': 'Haiku', x: 'gpt' }, rapor: 'tamam', durum: 'TAMAM' }, 3)
+  expect(p.sira).toEqual([2, 0])
+  expect(p.cikar).toEqual([1])
+  expect(p.birlestir).toEqual([{ a: 0, b: 2, metin: 'birleşik' }])
+  expect(p.kademe).toEqual({ 'test-yazici': 'haiku' })
+  expect(p.durum).toBe('TAMAM')
+  expect(denetmenPlanDogrula(null, 3)).toBeNull()
+  expect(denetmenPlanDogrula({ durum: 'DİKKAT — çakışma' }, 2).durum).toBe('DİKKAT')
+})
+
+test('denetmen planı kuyruğu uygular: sıra, çıkarma ve birleştirme', () => {
+  const items = [{ metin: 'A' }, { metin: 'B' }, { metin: 'C' }]
+  const fab = (m: string) => ({ metin: m })
+  expect(uygulaPlan(items, { sira: [2, 0], cikar: [1], birlestir: [] } as never, fab).map(x => x.metin)).toEqual(['C', 'A'])
+  expect(uygulaPlan(items, { sira: [], cikar: [], birlestir: [{ a: 0, b: 2, metin: 'AC' }] } as never, fab).map(x => x.metin)).toEqual(['AC', 'B'])
+  expect(uygulaPlan(items, { sira: [], cikar: [], birlestir: [] } as never, fab).map(x => x.metin)).toEqual(['A', 'B', 'C'])
 })

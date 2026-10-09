@@ -86,7 +86,19 @@ Bütçe kodla da uygulanır: sınırı aşan üye ve Opus ataması planda kırp�
 Son kontrol her zaman danışmandadır: ekipte iş bitince (otomatik turda da, elle ya da ana oturumun verdiği işte de) danışman çıktıları dosyalardan doğrular — bitiş ölçütü sağlandı mı, diff disiplini, risk — ve "KARAR: ONAY" ya da "KARAR: RET — <neden>" ile bitirir. Kritik bütçede son kontrol hafiftir (yalnız çıktılar üzerinden).
 
 ## 8. Dinamik model stratejisi
-Danışman modellerin yeteneklerini Anthropic'in model sayfasından okur (haftada bir Haiku'yla tazelenir; "/ekip modeller yenile"). Her proje için proje içeriğine (dil/dosya türleri, firmware mi web mi, test altyapısı, belge yoğunluğu) ve model profiline bakarak "model stratejisi" yazar: hangi tür iş bu projede hangi modele gider, sınırda ne yapılır. Strateji planlarda, tur değerlendirmelerinde ve briflerde kuralların üstüne uygulanır; model profili değişince ya da 14 günde bir yenilenir ("/ekip strateji yenile"). Kademe kuralları (§2) ve bütçe (§7) stratejiden önce gelir.`;
+Danışman modellerin yeteneklerini Anthropic'in model sayfasından okur (haftada bir Haiku'yla tazelenir; "/ekip modeller yenile"). Her proje için proje içeriğine (dil/dosya türleri, firmware mi web mi, test altyapısı, belge yoğunluğu) ve model profiline bakarak "model stratejisi" yazar: hangi tür iş bu projede hangi modele gider, sınırda ne yapılır. Strateji planlarda, tur değerlendirmelerinde ve briflerde kuralların üstüne uygulanır; model profili değişince ya da 14 günde bir yenilenir ("/ekip strateji yenile"). Kademe kuralları (§2) ve bütçe (§7) stratejiden önce gelir.
+
+## 9. Hiyerarşi v3 ve denetmen yetkisi
+Roller:
+- Fable (danışman): stratejiyi ve sekans raporlarını okur, kararları verir.
+- Denetmen (Fable): kuyruğun ve projenin düzeninin sahibidir. İstekleri birleştirir, sıralar, gereksizleri çıkarır ve her üyenin kademesini yeniden atayabilir. Tek komuta değil bütün işlere bakar.
+- Opus: alt kontrolcü ve uzman problem çözücü. Bir grup işi koordine eder, Sonnet/Haiku çıktılarını denetler, zor kök neden çözer.
+- Sonnet: kod derleme, build, test çalıştırma ve tarif edilmiş basit kod işleri.
+- Haiku: ucuz ve basit işler: tarama, sayım, envanter, biçimlendirme, sınıflandırma. Kuralı: basit ve mekanik iş Haiku'ya; belirsizlik ya da hata varsa Sonnet'e; mimari ya da kök neden varsa Opus'a.
+
+Sekans raporu: her istek ve her tur bittiğinde danışmana kısa bir gidişat raporu düşer (ne bitti, kuyrukta ne kaldı, çakışma var mı). Denetmen kuyruk boşalınca bütünü değerlendirir.
+
+Hafif-kullanım ilkesi: ucuz ve basit işleri daha aktif olarak Haiku ve Sonnet'e ver; Opus'u yalnızca gerçekten gerektiğinde kullan. Kota bütçesi (§7) bu dengeyi her zaman belirler.`;
 
 export const ISCI_FORMAT = `Çıktı biçimi: görev "[YOĞUN]" ile başlıyorsa en fazla 15 satır — ilk satır "ÖZET: <tek cümle>"; sonra | Dosya | Değişiklik | Doğrulama | Sonuç | tablosu (test/ölçüm yaptıysan önce/sonra sayıları); takıldıysan son satır "KARAR GEREKİR: ..." ya da "ENGEL: ...". Etiket yoksa en fazla 5 satır düz metin: değişen dosyalar ve doğrulama sonucu. Tahmin etme; emin olmadığını yaz. Görev sırasında "BRİF" başlıklı mesaj gelirse yönünü ona göre düzelt; "DUR" gelirse işi bırak ve o ana kadarını bu biçimde özetle.`;
 export const KADEME_EK = {

@@ -737,7 +737,9 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
 // briflerini ve son kontrol sonuçlarını birlikte okuyup çakışmaları, boşlukları ve sıradaki önceliği çıkarır. ──
 const DENETMEN_SISTEM = `Sen ekip denetmenisin (Fable). Tek bir komuta ya da tek bir koda değil, tüm işlerin bütününe bak. ${KULLANICI}
 Yapacakların: (1) tamamlanan işlerin birbiriyle çelişip çelişmediğini ve aynı dosyaya dokunup dokunmadığını bul; (2) bekleyen istekleri birleştirilebilirse birleştir, gereksizleri ele, sırayı önceliğe göre öner; (3) hedefe göre eksik kalan parçaları ve açık uçları say; (4) bir sonraki adımı tek satırda söyle. Kod yazma.
-Biçim (≤15 satır): "Durum" tek cümle; tablo | İş | Durum | Çakışma/Risk | Sıra |; "Öneri" en fazla 3 madde; son satır "DENETİM: TAMAM" ya da "DENETİM: DİKKAT — <neden>".`;
+Sen kuyruğun ve projenin düzeninin sahibisin: bekleyen istekleri birleştirebilir, sırasını değiştirebilir, gereksizleri çıkarabilir ve model kademelerini (opus/sonnet/haiku) işlere göre yeniden atayabilirsin. Kuralların §9'u (hiyerarşi v3) bağlayıcıdır.
+Yalnız JSON döndür: {"rapor":"Durum tek cümle + en fazla 3 öneri, Türkçe","durum":"TAMAM|DİKKAT","sira":[bekleyen istek indeksleri, öncelik sırasıyla],"cikar":[gereksiz indeksler],"birlestir":[[a,b,"birleşik istek metni"]],"kademe":{"uye-adi":"opus|sonnet|haiku"}}
+İndeksler 0'dan başlar ve yukarıdaki "Bekleyen istekler" listesine göre verilir.`;
 export function denetmenIstemi({ kosular, bekleyenler, brifler, sonKontrol }) {
   const isler = kosular.slice(-12).map(x => `- ${String(x.tip).replace(/^ekip:/, "")} (${x.durum}, ${x.adim ?? 0} adım): ${tek(x.aciklama, 80)}${x.cikti ? ` → ${tek(x.cikti, 160)}` : ""}`).join("\n") || "- henüz iş yok";
   const bek = bekleyenler.length ? bekleyenler.map((t, i) => `${i + 1}. ${tek(t, 160)}`).join("\n") : "yok";
@@ -748,32 +750,88 @@ async function denetle($) {
   const { value: k = [] } = await $.state.get(KOSULAR);
   const { value: br = [] } = await $.state.get(BRIFLER);
   const { value: sk = null } = await $.state.get(SON_KONTROL);
-  const prompt = denetmenIstemi({ kosular: k.filter(x => !x.tip.endsWith(":model-izci")), bekleyenler: kuyrukMetinleri, brifler: br, sonKontrol: sk });
+  const prompt = denetmenIstemi({ kosular: k.filter(x => !x.tip.endsWith(":model-izci")), bekleyenler: bekleyenIsler.map(x => x.metin), brifler: br, sonKontrol: sk });
   await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
   const r = await fable($, { system: DENETMEN_SISTEM, prompt, maxTokens: 1500, timeoutMs: 120_000 });
-  const metin = r.isAnswered ? r.text : `Denetim alınamadı: ${r.reason}`;
+  const plan = r.isAnswered ? denetmenPlanDogrula(jsonAl(r.text), bekleyenIsler.length) : null;
+  if (plan) {
+    // Denetmen kuyruğu ve kademeleri değiştirir: birleştirilenler tek istek olur, yeni sıra uygulanır.
+    const yeni = uygulaPlan(bekleyenIsler, plan, m => ({ metin: m, is: () => kurVeBekle($, m) }));
+    bekleyenIsler.splice(0, bekleyenIsler.length, ...yeni);
+    if (Object.keys(plan.kademe).length) await $.store.set("kademeOverride", { ...((await $.store.get("kademeOverride")) ?? {}), ...plan.kademe });
+  }
+  const metin = plan ? `${plan.rapor}\nDENETİM: ${plan.durum}` : r.isAnswered ? r.text : `Denetim alınamadı: ${r.reason}`;
   await $.state.set(DANISMAN, { soru: "Bütün denetimi", cevap: metin.slice(0, 9000), durum: r.isAnswered ? "bitti" : "hata", ...notu(r) });
+  await $.store.set("sonDenetim", Date.now());
   return metin;
 }
 
 // ── İstek kuyruğu: serbest metinler sırayla işlenir; her biri kur'un planlama aşamasını bitirene kadar bekler.
 // Kuyruk boşalınca denetmen bütünü gözden geçirir. ──
-let kuyruk = Promise.resolve();
-let bekleyen = 0;
-const kuyrukMetinleri = [];
-function kuyrugaEkle(metin, is, bittiginde) {
-  bekleyen++;
-  kuyrukMetinleri.push(metin);
-  const sira = bekleyen;
-  kuyruk = kuyruk.then(async () => {
-    try { await is(); } catch {}
-    finally {
-      kuyrukMetinleri.shift();
-      bekleyen--;
-      if (bekleyen === 0) await bittiginde().catch(() => {});
-    }
-  });
-  return sira;
+// Denetmen bu listeyi düzenler (sıra, birleştirme, çıkarma); tek döngü sırayla çalıştırır.
+const bekleyenIsler = []; // { metin, is }
+let kosuyorKuyruk = false;
+function kuyrugaEkle(metin, is, sonra, rapor) {
+  bekleyenIsler.push({ metin, is });
+  if (!kosuyorKuyruk) void kuyrukCalistir(sonra, rapor);
+  return bekleyenIsler.length;
+}
+async function kuyrukCalistir(sonra, rapor) {
+  kosuyorKuyruk = true;
+  while (bekleyenIsler.length) {
+    const it = bekleyenIsler.shift();
+    try { await it.is(); } catch {}
+    await rapor(it.metin).catch(() => {});
+  }
+  kosuyorKuyruk = false;
+  await sonra().catch(() => {});
+}
+/** Denetmen planını bekleyen listeye uygular (saf): sıra, birleştirme ve çıkarma; fabrika birleşik istek üretir. */
+export function uygulaPlan(items, plan, fabrika) {
+  const n = items.length;
+  const kalan = [...plan.sira, ...Array.from({ length: n }, (_, i) => i).filter(i => !plan.sira.includes(i))];
+  const cikar = new Set(plan.cikar);
+  const pairOf = new Map();
+  plan.birlestir.forEach(p => { pairOf.set(p.a, p); pairOf.set(p.b, p); });
+  const emitted = new Set(), out = [];
+  for (const i of kalan) {
+    if (cikar.has(i)) continue;
+    const p = pairOf.get(i);
+    if (p) { if (!emitted.has(p)) { emitted.add(p); out.push(fabrika(p.metin)); } continue; }
+    out.push(items[i]);
+  }
+  return out;
+}
+export const KADEME_IZINLI = ["opus", "sonnet", "haiku"];
+/** Denetmen JSON'unu doğrular: geçersiz indeks, tanınmayan kademe ve boş birleştirme atlanır. */
+export function denetmenPlanDogrula(j, n) {
+  if (!j || typeof j !== "object") return null;
+  const gecerli = i => Number.isInteger(i) && i >= 0 && i < n;
+  const cikar = [...new Set((Array.isArray(j.cikar) ? j.cikar : []).filter(gecerli))];
+  const kullanilan = new Set(cikar);
+  const birlestir = [];
+  for (const p of Array.isArray(j.birlestir) ? j.birlestir : []) {
+    const [a, b, txt] = p ?? [];
+    if (!gecerli(a) || !gecerli(b) || a === b || kullanilan.has(a) || kullanilan.has(b) || typeof txt !== "string" || !txt.trim()) continue;
+    birlestir.push({ a, b, metin: tek(txt, 400) });
+    kullanilan.add(a); kullanilan.add(b);
+  }
+  const sira = [...new Set((Array.isArray(j.sira) ? j.sira : []).filter(gecerli))];
+  const kademe = {};
+  for (const [uye, m] of Object.entries(j.kademe ?? {})) {
+    const mm = String(m).toLowerCase();
+    if (KADEME_IZINLI.includes(mm)) kademe[adTemizle(uye)] = mm;
+  }
+  return { sira, cikar, birlestir, kademe, rapor: tek(j.rapor ?? "", 1500) || "Denetim raporu yok.", durum: /d[iİıI]kkat/i.test(String(j.durum ?? "")) ? "DİKKAT" : "TAMAM" };
+}
+async function sekansRaporu($, metin) {
+  await $.state.set(DANISMAN, { soru: "Sekans raporu", cevap: `✔ ${tek(metin, 140)}\nKuyrukta kalan: ${bekleyenIsler.length}`, durum: "bitti" });
+}
+/** Son denetimden beri yeni bir iş bittiyse ya da kuyrukta bekleyen varsa denetim gerekir. */
+async function denetimGerekliMi($) {
+  const { value: k = [] } = await $.state.get(KOSULAR);
+  const son = (await $.store.get("sonDenetim")) ?? 0;
+  return bekleyenIsler.length > 0 || k.some(x => (x.bitis ?? 0) > son && !x.tip.endsWith(":model-izci"));
 }
 /** kur'u başlatır ve planın hazır/hata olmasını bekler (en fazla 6 dk). */
 async function kurVeBekle($, hedef) {
@@ -817,7 +875,10 @@ async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
 // o.model: danışmanın bu görev için seçtiği kademe (yoksa rolün modeli); o.yogun: işçi tablolu biçimde raporlar.
 export async function baslat($, uye, gorev, tur, o = {}) {
   const prompt = `${o.yogun ? "[YOĞUN] " : ""}${gorev}`;
-  const r = await $.agent.spawn({ subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(o.model ? { model: o.model } : {}) });
+  // Denetmenin kademe atamaları (kademeOverride) danışmanın planındaki modelin yerine geçer.
+  const ov = (await $.store.get("kademeOverride")) ?? {};
+  const model = o.model ?? ov[uye];
+  const r = await $.agent.spawn({ subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(model ? { model } : {}) });
   if (r.deny) $.ui.toast(`ekip: ${uye} başlatılamadı — ${r.deny}`);
   else if (r.agentId) await kosuEkle($, r.agentId, `${P}:${uye}`, gorev, r.model ?? o.model, tur, o.beklenenDk);
   return r;
@@ -920,9 +981,14 @@ export function register(on) {
       return { text: metin };
     }
     if (args) {
-      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($));
+      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($), m => sekansRaporu($, m));
       $.ui.toast(`◆ İstek sıraya alındı (${sira} bekliyor)`);
       return { text: `İstek sıraya alındı (sırada ${sira}). Fable planlayıp işçileri sırayla yönlendirecek; ilerleme panelde.` };
+    }
+    // Yalnız /ekip: denetim gerekiyorsa (kuyruk doluysa ya da yeni iş bittiyse) denetmen kendiliğinden çalışır.
+    if (await denetimGerekliMi($)) {
+      void denetle($).catch(() => {});
+      return { text: "Ajan ekibi paneli açıldı; denetmen kuyruğu ve işleri gözden geçiriyor, sonuç panelde." };
     }
     return { text: "Ajan ekibi paneli açıldı." };
   });
