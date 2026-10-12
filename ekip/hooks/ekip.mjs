@@ -1356,7 +1356,9 @@ export function register(on) {
     const sema = semaVar ? (() => {
       const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: kaynakSec(sadeSvg(v), v.sayim.calisiyor === 0 && !v.danisman.mesgul), alt, isInteractive: animAcik });
+      return Svg({ key: "sema", source: kaynakSec(sadeSvg(v), v.sayim.calisiyor === 0 && !v.danisman.mesgul), alt });
+      // isInteractive YOK: korumalı çerçeve her çizimde yeniden yüklenip ekranı kırpıştırıyordu. Düz resim olarak çizilir;
+      // SMIL hareketi resmin içinde oynar (oynamazsa panel yine okunur, kırpışmaz).
     })() : null;
     const agac = () => {
       const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);

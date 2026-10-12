@@ -226,7 +226,7 @@ test('sade mod: terminalde ağaç, uygulamada tek animatif şema (yalnız çalı
       expect(svgler).toHaveLength(1)                                              // tek şema, üye başına şerit yok
       const s = JSON.stringify(svgler[0])
       expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
-      expect(s).toMatch(/isInteractive.?.?:.?true/)                               // animasyon için çerçeve
+      expect(s).not.toMatch(/isInteractive.?.?:.?true/)                           // çerçeve yok: kırpışmaz
       expect(s).toMatch(/<animate/)                                                // çalışan ajan var: hareket var
       expect(s).toMatch(/Ajanlar|test-yazici/)                                     // ajan listesi yazıyla görünür
     }
