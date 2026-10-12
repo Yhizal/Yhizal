@@ -94,6 +94,15 @@ const ikonDaire = (cx, cy, key, durum, r = 16, nabiz = false) => {
     <g transform="translate(${cx - 6.9} ${cy - 6.9}) scale(1.15)" fill="none" class="${strk}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="${GLIF[key] ?? GLIF.nokta}"/></g>`;
 };
 
+/** Dönen çalışma göstergesi (Claude Code'un spinner'ı gibi): yarım daire dönüyor. */
+const donen = (cx, cy) => `<g transform="translate(${cx} ${cy})"><g><animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="0.9s" repeatCount="indefinite"/><circle r="5" fill="none" stroke-width="1.7" class="sacc" stroke-dasharray="15 17" stroke-linecap="round"/></g></g>`;
+/** Parıltı: koyu yazının üzerinden vurgu renginde bir ışık bandı soldan sağa süpürür (Claude Code'daki shimmer). */
+const PARILTI = `<defs><linearGradient id="parilti" gradientUnits="userSpaceOnUse" x1="0" y1="0" x2="220" y2="0" spreadMethod="repeat"><stop offset="0" stop-color="#374151"/><stop offset=".42" stop-color="#374151"/><stop offset=".5" stop-color="#2563EB"/><stop offset=".58" stop-color="#374151"/><stop offset="1" stop-color="#374151"/><animateTransform attributeName="gradientTransform" type="translate" from="0 0" to="220 0" dur="2.4s" repeatCount="indefinite"/></linearGradient></defs>`;
+/** Dönen durum kelimeleri: danışman çalışırken 2,2 sn'de bir değişir. */
+const KELIMELER = ["Düşünüyor", "Değerlendiriyor", "Planlıyor", "Karar veriyor"];
+const kelimeDonguSvg = (x, y) => KELIMELER.map((w, i) =>
+  `<text x="${x}" y="${y}" font-size="12.5" font-weight="600" class="acc" opacity="0"><animate attributeName="opacity" calcMode="discrete" dur="${KELIMELER.length * 2.2}s" repeatCount="indefinite" keyTimes="${KELIMELER.map((_, j) => (j / KELIMELER.length).toFixed(3)).join(";")}" values="${KELIMELER.map((_, j) => (j === i ? 1 : 0)).join(";")}"/>${w}</text>`).join("");
+
 /** Yüzde 5'lik, süre dakikalık adım: resim yalnız görünen bir şey değişince değişir. */
 export const yuzde5 = p => Math.round(Math.min(1, Math.max(0, p)) * 20) * 5;
 export function sureKisa(ms, bitti) {
@@ -153,13 +162,17 @@ export function sadeSvg(m) {
   if (m.danisman.rapor) for (const t of sarma(`Ara rapor · ${m.danisman.raporZ} — ${m.danisman.rapor}`, 78, mesgul ? 2 : 3)) dSatir.push({ t, c: mesgul ? "mut" : "ink" });
   if (!dSatir.length) dSatir.push({ t: brifSay ? `Hazır · bu işte ${brifSay} brif verdi` : "Hazır · işleri yönlendirmek için bekliyor", c: "mut" });
   const dh = 36 + dSatir.length * 19;
-  const noktalar = mesgul && anim ? [0, 1, 2].map(i => `<circle cx="${SW - PAD - 38 + i * 10}" cy="${dy + 36}" r="2.5" class="acc"><animate attributeName="opacity" values=".2;1;.2" dur="1.2s" begin="${i * 0.2}s" repeatCount="indefinite"/></circle>`).join("") : "";
+  const hareketVar = anim && (mesgul || satirlar.some(u => u.durum === "calisiyor"));
+  // Danışman çalışırken: dönen gösterge + dönen durum kelimeleri (Düşünüyor → Değerlendiriyor → …)
+  const durumSvg = mesgul && anim
+    ? `${donen(SW - PAD - 138, dy + 20)}${kelimeDonguSvg(SW - PAD - 124, dy + 24)}`
+    : `<text x="${SW - PAD - 14}" y="${dy + 24}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : "Hazır"}</text>`;
   const danisman = `<g><title>Danışman: ${k(m.danisman.durum)}</title>
     <rect x="${PAD}" y="${dy}" width="${SW - 2 * PAD}" height="${dh}" rx="12" class="tdan"/>
     ${ikonDaire(PAD + 26, dy + 29, "yildiz", mesgul ? "calisiyor" : "bitti", 17, anim && mesgul)}
     <text x="${PAD + 54}" y="${dy + 24}" font-size="13.5" font-weight="650" class="ink">Danışman <tspan class="mut" font-weight="400" font-size="12">· ${k(m.danisman.model)}</tspan></text>
-    ${dSatir.map((l, i) => `<text x="${PAD + 54}" y="${dy + 43 + i * 19}" font-size="12.5" class="${l.c}">${k(l.t)}</text>`).join("")}
-    <text x="${SW - PAD - 14}" y="${dy + 24}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : "Hazır"}</text>${noktalar}</g>`;
+    ${dSatir.map((l, i) => `<text x="${PAD + 54}" y="${dy + 43 + i * 19}" font-size="12.5" ${i === 0 && mesgul && anim ? 'fill="url(#parilti)"' : `class="${l.c}"`}>${k(l.t)}</text>`).join("")}
+    ${durumSvg}</g>`;
 
   // ── Ajanlar ──
   let y = dy + dh + 26;
@@ -181,8 +194,8 @@ export function sadeSvg(m) {
     govde += `<g><title>${k(`${u.ad}: ${u.gorev || ""}`)}</title>
       ${ikonDaire(PAD + 18, cy, ikon, u.durum, 16, anim && calisiyor)}
       <text x="${PAD + 46}" y="${cy - 3}" font-size="13.5" font-weight="650" class="ink">${k(kisalt(u.ad, 24))} <tspan class="mut" font-weight="400" font-size="12">${k(u.model ?? "")}</tspan></text>
-      <text x="${PAD + 46}" y="${cy + 15}" font-size="12.5" class="${calisiyor ? "ink" : "mut"}">${k(kisalt(cumle, bitti ? 66 : 50))}</text>
-      <text x="${SW - PAD}" y="${cy - 3}" text-anchor="end" font-size="12.5" font-weight="600" class="${durumSinif}">${k(durumYazi)}</text>${cubuk}
+      <text x="${PAD + 46}" y="${cy + 15}" font-size="12.5" ${calisiyor && anim ? 'fill="url(#parilti)"' : `class="${calisiyor ? "ink" : "mut"}"`}>${k(kisalt(cumle, bitti ? 66 : 50))}</text>
+      <text x="${SW - PAD}" y="${cy - 3}" text-anchor="end" font-size="12.5" font-weight="600" class="${durumSinif}">${k(durumYazi)}</text>${calisiyor && anim ? donen(Math.round(SW - PAD - durumYazi.length * 6.9 - 13), cy - 7) : ""}${cubuk}
       <path d="M${PAD + 46} ${y + SATIR + 0.5} H${SW - PAD}" class="ln" stroke-width="1" fill="none"/></g>`;
     y += SATIR;
   }
@@ -206,6 +219,6 @@ export function sadeSvg(m) {
     }
   }
   const H = y + 14;
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${H}" viewBox="0 0 ${SW} ${H}" font-family="${FONT}">${STIL}
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${H}" viewBox="0 0 ${SW} ${H}" font-family="${FONT}">${STIL}${hareketVar ? PARILTI : ""}
     ${baslik}${danisman}${govde}${olaylar}</svg>`;
 }

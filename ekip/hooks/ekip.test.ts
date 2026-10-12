@@ -624,3 +624,18 @@ test('ara rapor: danışman her bitişte kısa rapor yazar; panelde danışman �
   expect(yedekRapor('hizli-isci', { durum: 'bitti', ozet: 'testler geçti' } as never, ['kod-inceleyici'])).toBe('hizli-isci tamamlandı: testler geçti. Süren: kod-inceleyici.')
   expect(yedekRapor('hizli-isci', { durum: 'hata' } as never, [])).toBe('hizli-isci hata. Çalışan ajan kalmadı.')
 })
+
+test('hareket: dönen gösterge, parıltılı adım cümlesi, dönen durum kelimeleri; yalnız çalışırken, bitince hiçbiri yok', () => {
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'test-yazici'] }
+  const now = 30_000_000
+  const calisan: any[] = [{ id: 'a', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'calisiyor', baslangic: now - 60_000, aciklama: 'testler' }]
+  const v: any = semaVerisi(ekip, calisan, { now, tur: { no: 1, durum: 'degerlendiriliyor' } })      // danışman da çalışıyor
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/<linearGradient id="parilti"[\s\S]*<animateTransform attributeName="gradientTransform"/)   // parıltı bandı
+  expect(svg).toMatch(/fill="url\(#parilti\)"/)                                                                   // yazıya uygulanır
+  expect(svg).toMatch(/<animateTransform attributeName="transform" type="rotate"/)                                // dönen gösterge
+  for (const w of ['Düşünüyor', 'Değerlendiriyor', 'Planlıyor', 'Karar veriyor']) expect(svg).toContain(`>${w}</text>`)   // dönen kelimeler
+  expect(semaSvg({ ...v, anim: false })).not.toMatch(/<animate|parilti/)                                           // animasyon kapalı: iz yok
+  const bitti: any[] = [{ ...calisan[0], durum: 'bitti', bitis: now - 1000, ozet: 'tamam' }]
+  expect(semaSvg(semaVerisi(ekip, bitti, { now }))).not.toMatch(/<animate|parilti/)                               // hiçbiri çalışmıyor: hareket durur
+})
