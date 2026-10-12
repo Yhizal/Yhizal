@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -672,4 +672,53 @@ test('plan okunamayınca Fable bir kez yalnız-JSON uyarısıyla yeniden sorulur
   expect(kurCagri).toHaveLength(2)                                                  // bir kez yeniden soruldu
   expect(kurCagri[1]).toMatch(/YALNIZ JSON döndür/)
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:tarayici'])              // ikinci cevapla iş başladı
+})
+
+test('oturum bağlamı: eski konuşmadan son istekler, değişen dosyalar ve son cevap toplanır; /ekip satırı ve araç sonuçları dışarıda', () => {
+  const ms: any[] = [
+    { role: 'user', text: 'SPFx hız düzeltmelerini yap', toolUses: [] },
+    { role: 'assistant', text: 'Tamam', toolUses: [{ tool: 'Edit', input: { file_path: 'C:/p/a.ts' } }, { tool: 'Read', input: { file_path: 'C:/p/okunan.ts' } }, { tool: 'Write', input: { file_path: 'C:/p/b.ts' } }] },
+    { role: 'user', text: '', toolResults: [{ text: 'ok' }], toolUses: [] },
+    { role: 'assistant', text: 'a.ts ve b.ts düzeltildi; testler eksik.', toolUses: [{ tool: 'Edit', input: { file_path: 'C:/p/a.ts' } }] },
+    { role: 'user', text: '/ekip toparla', toolUses: [] },
+  ]
+  const b = baglamTopla(ms, { komut: 'toparla' })
+  expect(b).toMatch(/SPFx hız düzeltmelerini yap/)
+  expect(b).toMatch(/C:\/p\/a\.ts \(2×\)/)
+  expect(b).toMatch(/C:\/p\/b\.ts/)
+  expect(b).not.toMatch(/okunan\.ts/)               // yalnız değişen dosyalar
+  expect(b).not.toMatch(/\/ekip toparla/)           // komutun kendisi bağlam değil
+  expect(b).toMatch(/testler eksik/)
+  expect(baglamTopla([])).toBe('')
+  expect(baglamTopla(null as never)).toBe('')
+  expect(baglamTopla([{ role: 'user', text: 'x'.repeat(5000), toolUses: [] }] as never, { sinir: 300 }).length).toBeLessThanOrEqual(300)
+})
+
+test('eski konuşmaya eklenen kısa hedef: plan isteği oturum bağlamını taşır; sıradaki iş bildirimi doğru', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('session.messages', () => ({ value: [
+    { role: 'user', text: 'Köprü modülünü yeniden yaz', toolUses: [] },
+    { role: 'assistant', text: 'köprü.py yazıldı', toolUses: [{ tool: 'Write', input: { file_path: 'C:/p/kopru.py' } }] },
+  ] }) as never)
+  const kurCagri: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    kurCagri.push(String(e.prompt))
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Toplama', amac: 'x', uyeler: [{ ad: 'toplayici', model: 'sonnet', araclar: ['Read'], gorev: 'kopru.py dosyasını gözden geçir', bitis_olcutu: 'liste' }] }) } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  const r1: any = await $.command.run({ command: 'ekip', args: 'toparla', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 100))
+  expect(String(r1?.value?.text ?? r1?.text ?? '')).toMatch(/İstek alındı/)       // önünde iş yok: hemen başlıyor
+  expect(kurCagri[0]).toMatch(/OTURUM BAĞLAMI/)
+  expect(kurCagri[0]).toMatch(/Köprü modülünü yeniden yaz/)
+  expect(kurCagri[0]).toMatch(/C:\/p\/kopru\.py/)
+  expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:toplayici'])
 })

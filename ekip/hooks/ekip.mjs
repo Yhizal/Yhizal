@@ -579,25 +579,69 @@ async function strateji($, { zorla = false } = {}) {
 const stratejiOku = async $ => (await $.store.get(stratejiAnahtari()))?.metin ?? null;
 const stratejiBolumu = st => (st ? `\n\nMODEL STRATEJİSİ (bu proje, danışmanın kendi kararı):\n${st}` : "");
 
+/** Planlamayı geciktirmesin: kayıtlı strateji varsa (eskimiş olsa da) hemen kullanılır, tazeleme arkada yürür;
+ *  hiç yoksa en çok 45 sn beklenir, olmadan planlanır. */
+async function stratejiHizli($) {
+  const kayit = await $.store.get(stratejiAnahtari());
+  const tazele = strateji($).catch(() => null);
+  if (kayit?.metin) return kayit.metin;
+  let zk;
+  const bekle = new Promise(r => { zk = setTimeout(() => r(null), 45_000); });
+  try { return await Promise.race([tazele, bekle]); } finally { clearTimeout(zk); }
+}
+
+/** Eski bir konuşmanın üstüne eklenen /ekip için oturum bağlamı (saf): son kullanıcı istekleri, değişen dosyalar,
+ *  son asistan cevabı. "Kodu topla / devam et" gibi kısa hedefler bu bağlamdan anlam kazanır. */
+export function baglamTopla(mesajlar, { komut = "", sinir = 2600 } = {}) {
+  const ms = Array.isArray(mesajlar) ? mesajlar.slice(-80) : [];
+  const istekler = [], dosyalar = new Map();
+  let sonCevap = "";
+  for (const m of ms) {
+    if (m.role === "user" && m.text?.trim() && !m.toolResults?.length) {
+      const t = m.text.trim();
+      if (!/^\/ekip\b/i.test(t) && t !== komut) istekler.push(tek(t, 260));
+    }
+    if (m.role === "assistant") {
+      if (m.text?.trim()) sonCevap = m.text.trim();
+      for (const u of m.toolUses ?? []) {
+        const yol = u.input?.file_path ?? u.input?.notebook_path;
+        if (yol && /^(Edit|Write|NotebookEdit|MultiEdit)$/.test(u.tool)) dosyalar.set(String(yol), (dosyalar.get(String(yol)) ?? 0) + 1);
+      }
+    }
+  }
+  if (!istekler.length && !dosyalar.size && !sonCevap) return "";
+  const parcalar = [];
+  if (istekler.length) parcalar.push(`Kullanıcının son istekleri (eskiden yeniye):\n${istekler.slice(-5).map(x => `- ${x}`).join("\n")}`);
+  if (dosyalar.size) parcalar.push(`Bu konuşmada değiştirilen dosyalar:\n${[...dosyalar].slice(-15).map(([y, n]) => `- ${y}${n > 1 ? ` (${n}×)` : ""}`).join("\n")}`);
+  if (sonCevap) parcalar.push(`Asistanın son cevabı:\n${tek(sonCevap, 600)}`);
+  const metin = parcalar.join("\n\n");
+  return metin.length > sinir ? `${metin.slice(0, sinir - 1)}…` : metin;
+}
+const baglamBolumu = b => (b ? `\n\nOTURUM BAĞLAMI (hedef bu konuşmanın devamıdır; hedef kısa ya da belirsizse — "toparla", "devam et", "kodu topla" — neyin kastedildiğini buradan çıkar, soru SORMA):\n${b}` : "");
+async function oturumBaglami($, hedef) {
+  try { return baglamTopla(await $.session.messages(), { komut: hedef }); } catch { return ""; }
+}
+
 async function kur($, hedef) {
   await $.state.set(TASLAK, { durum: "hazirlaniyor", hedef });
   akisEkle("danisman", `plan yazıyor: ${tek(hedef, 60)}`, "danışman");
   cark($);
   const b = await butceAl($);
-  const st = await strateji($);
-  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`, maxTokens: 4500, timeoutMs: 180_000 });
+  const [st, bag] = await Promise.all([stratejiHizli($), oturumBaglami($, hedef)]);
+  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
+  let r = await fable($, { system: KUR_SISTEM, prompt: temel, maxTokens: 4500, timeoutMs: 180_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
   // Okunamayan cevap (sohbet cevabı, soru, kod bloğu, kesik JSON): bir kez, yalnız-JSON uyarısıyla yeniden sor.
   if (r.isAnswered && !taslak) {
     const r2 = await fable($, { system: KUR_SISTEM, maxTokens: 4500, timeoutMs: 180_000,
-      prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}\n\nÖnceki cevabın geçerli bir plan JSON'u değildi (en az bir üye olmalı; her üyede "ad" ve "gorev" bulunmalı). YALNIZ JSON döndür; açıklama, soru ya da kod bloğu yazma. Hedef belirsizse en makul somut işi varsayıp planla.` });
+      prompt: `${temel}\n\nÖnceki cevabın geçerli bir plan JSON'u değildi (en az bir üye olmalı; her üyede "ad" ve "gorev" bulunmalı). YALNIZ JSON döndür; açıklama, soru ya da kod bloğu yazma. Hedef belirsizse en makul somut işi varsayıp planla.` });
     const t2 = r2.isAnswered ? planDogrula(jsonAl(r2.text)) : null;
     if (t2) { taslak = t2; r = r2; } else if (r2.isAnswered) r = r2;
   }
   // Aynı dosya iki üyede: plan bir kez danışmana geri verilir (§2 bölme kuralı).
   if (taslak?.cakisma.length) {
     const not = taslak.cakisma.map(c => `${c.dosya}: ${c.a} ve ${c.b}`).join("; ");
-    const r2 = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}\n\nÖnceki planında aynı dosya iki üyeye verilmiş (${not}). Dosyayı tek üyeye ver, öbürü salt okusun ya da bagimli olsun; planı yeniden yaz.`, maxTokens: 3500, timeoutMs: 180_000 });
+    const r2 = await fable($, { system: KUR_SISTEM, prompt: `${temel}\n\nÖnceki planında aynı dosya iki üyeye verilmiş (${not}). Dosyayı tek üyeye ver, öbürü salt okusun ya da bagimli olsun; planı yeniden yaz.`, maxTokens: 3500, timeoutMs: 180_000 });
     const t2 = r2.isAnswered ? planDogrula(jsonAl(r2.text)) : null;
     if (t2) { taslak = t2; r = r2; }
   }
@@ -832,16 +876,24 @@ async function denetle($) {
 // Denetmen bu listeyi düzenler (sıra, birleştirme, çıkarma); tek döngü sırayla çalıştırır.
 const bekleyenIsler = []; // { metin, is }
 let kosuyorKuyruk = false;
+const KUYRUK_ZAMAN_ASIMI = 8 * 60_000; // tek bir planlama bundan uzun sürerse takılmış sayılır, kuyruk ilerler
+/** Sıraya ekler; dönüş: önünde bekleyen iş sayısı (0 = hemen başlıyor). */
 function kuyrugaEkle(metin, is, sonra, rapor) {
+  const once = kosuyorKuyruk ? bekleyenIsler.length + 1 : 0; // +1: şu an koşan iş
   bekleyenIsler.push({ metin, is });
+  if (once) akisEkle("danisman", `sırada (${once} iş önde): ${tek(metin, 50)}`, "danışman");
   if (!kosuyorKuyruk) void kuyrukCalistir(sonra, rapor);
-  return bekleyenIsler.length;
+  return once;
 }
 async function kuyrukCalistir(sonra, rapor) {
   kosuyorKuyruk = true;
   while (bekleyenIsler.length) {
     const it = bekleyenIsler.shift();
-    try { await it.is(); } catch {}
+    let zk;
+    const asim = new Promise(r => { zk = setTimeout(() => r("asim"), KUYRUK_ZAMAN_ASIMI); });
+    try {
+      if (await Promise.race([it.is().then(() => "bitti"), asim]) === "asim") akisEkle("danisman", `plan çok uzadı, sıradakine geçildi: ${tek(it.metin, 40)}`, "danışman");
+    } catch {} finally { clearTimeout(zk); }
     await rapor(it.metin).catch(() => {});
   }
   kosuyorKuyruk = false;
@@ -1130,8 +1182,10 @@ export function register(on) {
     }
     if (args) {
       const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($), m => sekansRaporu($, m));
-      $.ui.toast(`◆ İstek sıraya alındı (${sira} bekliyor)`);
-      return { text: `İstek sıraya alındı (sırada ${sira}). Fable planlayıp işçileri sırayla yönlendirecek; ilerleme panelde.` };
+      $.ui.toast(sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
+      return { text: sira
+        ? `İstek sıraya alındı: önünde ${sira} iş var, o bitince başlar. İlerleme panelde.`
+        : "İstek alındı; Fable konuşma bağlamını okuyup planlıyor, işçiler hemen ardından başlar. İlerleme panelde." };
     }
     // Yalnız /ekip: denetim gerekiyorsa (kuyruk doluysa ya da yeni iş bittiyse) denetmen kendiliğinden çalışır.
     if (await denetimGerekliMi($)) {
