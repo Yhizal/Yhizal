@@ -462,3 +462,30 @@ test('canlı akış: eylem metni, ÖZET satırı; akış şemada en yeni üstte,
   expect(svg).toMatch(/✓ 3 test eklendi/)                                           // biten üye kartında bulgu
   expect(semaSvg({ ...v, anim: false })).not.toMatch(/<animate/)
 })
+
+test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla panele yansır, iş bitince sayaç durur', async ($, on) => {
+  const saat = mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'g1' }) as never)
+  on('tool.call', () => ({ result: 'ok' }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'SPFx mobile speed fixes 1-8', subagentType: 'general-purpose' } as never)
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  const svg = async () => JSON.stringify(await ui.find({ type: 'Svg' } as never))
+  expect(await svg()).toMatch(/Diğer çalışan ajanlar[\s\S]*general-purpose[\s\S]*SPFx mobile speed fixes 1-8/)
+  await $.tool.call({ tool: 'Read', file_path: 'src/app.ts', agentId: 'g1' } as never)
+  await saat.advance(2600)                                           // canlı sayaç paneli yeniden çizer
+  expect(await svg()).toMatch(/▸ Read src\/app\.ts/)
+  await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: 'g1' } as never)
+  await saat.advance(2600)
+  expect(await svg()).toMatch(/▸ Bash npm run build/)                 // ikinci adım da yansır
+  await $.turn.complete({ agentId: 'g1', answer: 'ÖZET: bitti', durationMs: 9000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await saat.advance(2600)
+  expect(await svg()).not.toMatch(/Diğer çalışan ajanlar/)           // biten ajan çalışanlardan düşer
+  await ui.unmount()
+})

@@ -67,17 +67,19 @@ function uyeKart(u, x, y, w, anim = false) {
   const bw = w - 24, dolu = Math.round(bw * Math.min(100, u.yuzde) / 100);
   const calisiyor = u.durum === "calisiyor";
   // Satır 3: çalışırken şu anki eylem, bitince bulgu (ÖZET), yoksa görev.
-  const satir3 = calisiyor && u.simdi ? `▸ ${u.simdi}` : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.gorev || "görev bekliyor";
+  const gorevYazi = u.gorev || "görev bekliyor";
+  const simdiYazi = calisiyor ? (u.simdi ? `▸ ${u.simdi}` : "▸ başlıyor…") : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.durum === "hata" ? "✕ hatayla bitti" : "";
   const nokta = calisiyor && anim
     ? `<circle cx="14" cy="15" r="5" fill="${renk}"><animate attributeName="r" values="4;6.5;4" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="1.2s" repeatCount="indefinite"/></circle>`
     : `<circle cx="14" cy="15" r="5" fill="${renk}"/>`;
   const isilti = calisiyor && anim && dolu > 22 ? `<rect x="12" y="27" width="14" height="4" rx="2" fill="#FFFFFF" fill-opacity=".6"><animate attributeName="x" values="12;${12 + dolu - 14};12" dur="1.8s" repeatCount="indefinite"/></rect>` : "";
-  return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="53" rx="8" class="kart"/>
+  return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="67" rx="8" class="kart"/>
     ${nokta}${ikon ? `<text x="14" y="18.5" text-anchor="middle" font-size="8" font-weight="800" fill="#FFFFFF">${ikon}</text>` : ""}
     <text x="25" y="19" font-size="12" font-weight="700" class="yazi">${k(kisalt(u.ad, Math.round((w - 90) / 6.8)))}</text>
     <text x="${w - 10}" y="19" text-anchor="end" font-size="10.5" font-weight="600" fill="${u.durum === "bekliyor" ? "#A1A1AA" : renk}">${k(sag)}</text>
     <rect x="12" y="27" width="${bw}" height="4" rx="2" class="trk"/>${dolu > 0 ? `<rect x="12" y="27" width="${Math.max(4, dolu)}" height="4" rx="2" fill="${renk}"/>` : ""}${isilti}
-    <text x="12" y="45" font-size="10" ${calisiyor && u.simdi ? `font-weight="600" fill="${renk}"` : 'class="mut"'}>${k(kisalt(satir3, Math.round((w - (u.brif ? 60 : 20)) / 5.2)))}</text>
+    <text x="12" y="45" font-size="10" class="yazi">${k(kisalt(gorevYazi, Math.round((w - (u.brif ? 60 : 20)) / 5.2)))}</text>
+    <text x="12" y="60" font-size="10" ${calisiyor ? `font-weight="600" fill="${renk}"` : 'class="mut"'}>${k(kisalt(simdiYazi, Math.round((w - 20) / 5.2)))}</text>
     ${u.brif ? `<g transform="translate(${w - 50} 36)"><rect width="40" height="13" rx="6.5" fill="${KADEME_RENK.danışman}" fill-opacity=".14"/><text x="20" y="9.5" text-anchor="middle" font-size="8.5" font-weight="700" fill="${KADEME_RENK.danışman}">${u.brif} brif</text></g>` : ""}</g>`;
 }
 
@@ -86,12 +88,15 @@ function uyeKart(u, x, y, w, anim = false) {
  *      danisman:{model,durum,is,mesgul}, kademeler:[{kademe,etiket,modelAd,alt,uyeler:[{ad,durum,yuzde,sure,gorev,brif}]}] }
  */
 export function semaSvg(m) {
-  const KY = 72, BUS = 150, KB = 162, UY = 212, UH = 54, UG = 8;
+  const KY = 72, BUS = 150, KB = 162, UY = 212, UH = 68, UG = 8;
   const n = m.kademeler.length || 1, gap = 10, cw = Math.floor((SW - gap * (n - 1)) / n);
   const enCok = Math.max(1, ...m.kademeler.map(kd => kd.uyeler.length));
   const anim = m.anim !== false;
   const akis = (m.akis ?? []).slice(0, 8);
-  const akisY = UY + enCok * (UH + UG) + 6;
+  const diger = (m.diger ?? []).slice(0, 4);
+  const digerY = UY + enCok * (UH + UG) + 6;
+  const digerH = diger.length ? 24 + diger.length * 34 : 0;
+  const akisY = digerY + digerH + (digerH ? 6 : 0);
   const akisH = akis.length ? 24 + akis.length * 15 : 0;
   const H = akisY + akisH + 26;
   const sx = i => Math.round(i * (cw + gap));
@@ -125,6 +130,14 @@ export function semaSvg(m) {
       : `<text x="${orta(i)}" y="${UY + 20}" text-anchor="middle" font-size="10.5" class="mut">bu kademede üye yok</text>`)).join("");
   const lejant = [["calisiyor", "çalışıyor"], ["bitti", "bitti"], ["hata", "hata"], ["bekliyor", "bekliyor"]]
     .map(([d, t], i) => `<circle cx="${14 + i * 86}" cy="${H - 10}" r="4" fill="${DURUM_RENK[d]}"/><text x="${22 + i * 86}" y="${H - 6.5}" font-size="10" class="mut">${t}</text>`).join("");
+  // Ekip dışı çalışan ajanlar (ana oturumun başlattıkları): ad, süre, görev ve şu anki adım.
+  const digerSvg = diger.length ? `<g transform="translate(0 ${digerY})"><rect x=".5" y=".5" width="${SW - 1}" height="${digerH - 4}" rx="8" class="kart"/>
+    <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Diğer çalışan ajanlar</text>
+    ${diger.map((d, i) => `<g transform="translate(0 ${24 + i * 34})"><circle cx="18" cy="9" r="4" fill="${DURUM_RENK.calisiyor}"/>
+      <text x="30" y="12" font-size="11" font-weight="700" class="yazi">${k(kisalt(d.ad, 22))}</text>
+      <text x="200" y="12" font-size="10" font-weight="600" fill="${DURUM_RENK.calisiyor}">${k(kisalt(d.simdi ? `▸ ${d.simdi}` : "▸ çalışıyor", 52))}</text>
+      <text x="${SW - 12}" y="12" text-anchor="end" font-size="10" class="mut">${k(d.sure)}</text>
+      <text x="30" y="26" font-size="10" class="mut">${k(kisalt(d.gorev, 96))}</text></g>`).join("")}</g>` : "";
   // Canlı akış: en yeni olay üstte; renk olayı yapan üyenin kademesi (danışman mor).
   const akisSvg = akis.length ? `<g transform="translate(0 ${akisY})"><rect x=".5" y=".5" width="${SW - 1}" height="${akisH - 4}" rx="8" class="kart"/>
     <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Canlı akış</text>
@@ -134,7 +147,7 @@ export function semaSvg(m) {
       <text x="78" y="9" font-size="10.5" font-weight="${i === 0 ? 700 : 600}" class="yazi">${k(kisalt(a.uye, 16))}</text>
       <text x="170" y="9" font-size="10.5" class="${i === 0 ? "yazi" : "mut"}">${k(kisalt(a.metin, 78))}</text></g>`).join("")}</g>` : "";
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${H}" viewBox="0 0 ${SW} ${H}" font-family="${FONT}">${STIL}
-    ${baslik(m)}${cizgiler}${danismanKart({ ...m.danisman, anim }, KY)}${sutunlar}${akisSvg}${lejant}
+    ${baslik(m)}${cizgiler}${danismanKart({ ...m.danisman, anim }, KY)}${sutunlar}${digerSvg}${akisSvg}${lejant}
     <text x="${SW - 4}" y="${H - 6.5}" text-anchor="end" font-size="10" class="mut">ast-üst: danışman → kademe → üye</text></svg>`;
 }
 
