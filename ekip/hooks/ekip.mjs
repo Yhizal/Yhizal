@@ -1,6 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
-import { semaSvg, yuzde5, sureKisa } from "./sema.mjs";
+import { panoSvg, yuzde5, sureKisa } from "./pano.mjs";
 import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -914,7 +914,7 @@ let danOdak = "";           // danışmanın şu an ilgilendiği şey
 let animAcik = false; // varsayılan KAPALI: çerçeveli (SMIL) çizim her tazelemede yeniden yüklenip kırpışıyordu
 const hhmmss = t => new Date(t).toLocaleTimeString("tr-TR", { hour12: false });
 export function akisEkle(uye, metin, kdm) {
-  akis.unshift({ z: hhmmss(Date.now()), uye, metin: tek(metin, 90), kademe: kdm });
+  akis.unshift({ t: Date.now(), z: hhmmss(Date.now()), uye, metin: tek(metin, 90), kademe: kdm });
   if (akis.length > 40) akis.length = 40;
   if (uye === "danisman") danOdak = tek(metin, 60);
 }
@@ -951,7 +951,8 @@ export function semaVerisi(ekip, kosular, o = {}) {
         return { ad: u, durum: k ? k.durum : "bekliyor", yuzde: k ? yuzde5(ilerleme(k, stat)) : 0,
           sure: k ? sureKisa((k.bitis ?? now) - k.baslangic, k.durum !== "calisiyor") : "",
           gorev: k?.aciklama ?? rolu(ekip, u)?.description ?? "", brif: (o.brifler ?? []).filter(b => b.uye === u).length,
-          simdi: k?.durum === "calisiyor" ? sonEylem.get(k.id) ?? "" : "", ozet: k?.ozet ?? "" };
+          simdi: k?.durum === "calisiyor" ? sonEylem.get(k.id) ?? "" : "", ozet: k?.ozet ?? "",
+          aralik: kosular.filter(x => x.tip === `${P}:${u}`).map(x => ({ b: x.baslangic, e: x.bitis, durum: x.durum })) };
       }) };
   });
   const SIRA = { calisiyor: 0, hata: 1, iptal: 1, bitti: 2, bekliyor: 3 };
@@ -970,18 +971,24 @@ export function semaVerisi(ekip, kosular, o = {}) {
     : sk.durum === "bekliyor" ? { yazi: "son kontrol…", renk: "#C026D3" } : { yazi: "son kontrol ?", renk: "#D97706" };
   const mesgul = o.taslak?.durum === "hazirlaniyor" || t?.durum === "degerlendiriliyor" || o.dan?.durum === "bekliyor" || sk?.durum === "bekliyor";
   const fm = pm("fable");
+  const enErken = Math.min(now, ...kosular.map(x => x.baslangic), ...akis.map(a => a.t ?? now)
+    .filter(n => now - n < 60 * 60_000));
   return {
     ekip: { ad: ekip.ad, amac: ekip.amac }, tur, sonKontrol,
     butce: o.butceDurum ? { yazi: `bütçe ${o.butceDurum.seviye}`, renk: BUTCE_RENK[o.butceDurum.seviye] ?? "#0891B2" } : null,
     danisman: { model: fm ? modelAdi(fm.id) : "Fable", mesgul,
       durum: !mesgul ? "hazır" : sk?.durum === "bekliyor" ? "son kontrol" : o.taslak?.durum === "hazirlaniyor" ? "plan yazıyor" : "düşünüyor",
-      is: o.dan?.soru ?? (t ? "" : "görev bekliyor"), odak: mesgul ? danOdak : "" },
+      is: o.dan?.soru ?? (t ? "" : "görev bekliyor"), odak: mesgul ? danOdak : "",
+      olaylar: akis.filter(a => a.uye === "danisman" && a.t).map(a => ({ t: a.t, metin: a.metin })) },
     kademeler, anim: o.anim !== false,
     akis: akis.slice(0, 8),
     // Ekip üyesi olmayan çalışan ajanlar (ana oturumun başlattıkları): görev + şu anki adım
     sayim, digerFazla: Math.max(0, digerHam.length - 4),
     diger: digerHam
-      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: sonEylem.get(x.id) ?? "", sure: sureKisa(now - x.baslangic, false) })),
+      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: sonEylem.get(x.id) ?? "", sure: sureKisa(now - x.baslangic, false), b: x.baslangic })),
+    // Zaman çizelgesi (pano): pencerenin başlangıcı = son bir saatteki en erken olay
+    zaman: { now, bas: enErken < now ? enErken : undefined },
+    brifler: (o.brifler ?? []).map(b => ({ t: b.zaman, uye: b.uye })),
   };
 }
 
@@ -1039,7 +1046,7 @@ export function register(on) {
       animAcik = !/kapat|kapal[ıi]|off/i.test(args);
       await $.store.set("animasyon", animAcik);
       await $.state.set(FRAME, ((await $.state.get(FRAME)).value ?? 0) + 1);
-      return { text: `Panel animasyonu ${animAcik ? "AÇIK" : "KAPALI (şema statik resim)"}` };
+      return { text: "Pano artık animasyonsuz bir mühendislik şematiği (çubuklar uzar, günlük akar); bu ayar kullanılmıyor." };
     }
     if (/^denetle\b/i.test(args)) {
       await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
@@ -1299,7 +1306,7 @@ export function register(on) {
     const sema = semaVar ? (() => {
       const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: semaSvg(v), alt, isInteractive: animAcik }); // SMIL animasyonu için sandbox çerçevesi
+      return Svg({ key: "sema", source: panoSvg(v), alt }); // düz resim: animasyon yok, kırpışma yok
     })() : null;
     const agac = () => {
       const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);
