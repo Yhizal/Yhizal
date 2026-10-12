@@ -238,10 +238,29 @@ export function tarayici(frame, W = 16) {
   return Array.from({ length: W }, (_, i) => (Math.abs(i - x) === 0 ? "●" : Math.abs(i - x) === 1 ? "•" : Math.abs(i - x) === 2 ? "∙" : "·")).join("");
 }
 
+// Metindeki ilk geçerli JSON nesnesini alır. Eskiden ilk "{" ile SON "}" arası tek parça alınıyordu: cevabın başında ya da
+// sonunda süslü parantezli bir açıklama varsa bütün plan okunamıyordu. Şimdi parantezler dengelenir (dizgeler dikkate alınır);
+// kapanmamış (kesik) JSON null döner.
+function dengeliSon(t, bas) {
+  let d = 0, str = false, kac = false;
+  for (let i = bas; i < t.length; i++) {
+    const c = t[i];
+    if (str) { if (kac) kac = false; else if (c === "\\") kac = true; else if (c === '"') str = false; continue; }
+    if (c === '"') str = true;
+    else if (c === "{") d++;
+    else if (c === "}" && --d === 0) return i;
+  }
+  return -1;
+}
 export function jsonAl(text) {
-  const m = String(text ?? "").match(/\{[\s\S]*\}/);
-  if (!m) return null;
-  try { return JSON.parse(m[0]); } catch { return null; }
+  const t = String(text ?? "");
+  for (let i = 0; i < t.length; i++) {
+    if (t[i] !== "{") continue;
+    const son = dengeliSon(t, i);
+    if (son < 0) return null;
+    try { return JSON.parse(t.slice(i, son + 1)); } catch { i = son; }
+  }
+  return null;
 }
 export function adTemizle(s) {
   return String(s ?? "").toLowerCase().replace(/ı/g, "i").normalize("NFD").replace(/[\u0300-\u036f]/g, "")
@@ -566,8 +585,15 @@ async function kur($, hedef) {
   cark($);
   const b = await butceAl($);
   const st = await strateji($);
-  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`, maxTokens: 3500, timeoutMs: 180_000 });
+  let r = await fable($, { system: KUR_SISTEM, prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`, maxTokens: 4500, timeoutMs: 180_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
+  // Okunamayan cevap (sohbet cevabı, soru, kod bloğu, kesik JSON): bir kez, yalnız-JSON uyarısıyla yeniden sor.
+  if (r.isAnswered && !taslak) {
+    const r2 = await fable($, { system: KUR_SISTEM, maxTokens: 4500, timeoutMs: 180_000,
+      prompt: `Hedef: ${hedef}\n\n${butceSatiri(b)}${stratejiBolumu(st)}\n\nÖnceki cevabın geçerli bir plan JSON'u değildi (en az bir üye olmalı; her üyede "ad" ve "gorev" bulunmalı). YALNIZ JSON döndür; açıklama, soru ya da kod bloğu yazma. Hedef belirsizse en makul somut işi varsayıp planla.` });
+    const t2 = r2.isAnswered ? planDogrula(jsonAl(r2.text)) : null;
+    if (t2) { taslak = t2; r = r2; } else if (r2.isAnswered) r = r2;
+  }
   // Aynı dosya iki üyede: plan bir kez danışmana geri verilir (§2 bölme kuralı).
   if (taslak?.cakisma.length) {
     const not = taslak.cakisma.map(c => `${c.dosya}: ${c.a} ve ${c.b}`).join("; ");
@@ -583,7 +609,7 @@ async function kur($, hedef) {
   }
   await $.state.set(TASLAK, taslak
     ? { durum: "hazir", hedef, ...taslak, ...notu(r) }
-    : { durum: "hata", hedef, hata: r.isAnswered ? "Fable'ın planı okunamadı; hedefi biraz daha somut yaz." : `Fable'a ulaşılamadı: ${r.reason}` });
+    : { durum: "hata", hedef, hata: r.isAnswered ? `Fable plan yerine şunu yazdı: «${tek(r.text, 170)}» — hedefi daha somut yazıp yeniden dene.` : `Fable'a ulaşılamadı: ${r.reason}` });
   // Otomatik mod: plan onay beklemez, üyeler hemen başlar (elle yönetimde onay düğmesi kalır).
   if (taslak && !elleAcik) await onayla($);
 }

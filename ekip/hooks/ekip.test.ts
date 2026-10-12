@@ -639,3 +639,37 @@ test('hareket: dönen gösterge, parıltılı adım cümlesi, dönen durum kelim
   const bitti: any[] = [{ ...calisan[0], durum: 'bitti', bitis: now - 1000, ozet: 'tamam' }]
   expect(semaSvg(semaVerisi(ekip, bitti, { now }))).not.toMatch(/<animate|parilti/)                               // hiçbiri çalışmıyor: hareket durur
 })
+
+test('JSON ayıklama: dengeli parantez; baştaki/sondaki açıklama ve kod bloğu plan okumayı bozmaz, kesik JSON null', () => {
+  const plan = { ad: 'E', amac: 'a', uyeler: [{ ad: 'x', gorev: 'g {iç parantez} }' }] }
+  expect(jsonAl('Tamam. ```json\n' + JSON.stringify(plan) + '\n``` Not: parametre {x} olabilir.')).toEqual(plan)   // eski kod burada patlıyordu
+  expect(jsonAl('önce {bozuk json} sonra ' + JSON.stringify(plan))).toEqual(plan)                                  // bozuk ilk nesne atlanır
+  expect(jsonAl('{"ad":"E","uyeler":[{"ad":"x","gorev":"yarım')).toBeNull()                                          // kesik: kapanmamış
+  expect(jsonAl('hiç json yok')).toBeNull()
+})
+
+test('plan okunamayınca Fable bir kez yalnız-JSON uyarısıyla yeniden sorulur; ikincisi geçerliyse iş başlar', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  const kurCagri: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    const sis = String(e.system)
+    if (/model kullanım stratejisi/.test(sis)) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    kurCagri.push(String(e.prompt))
+    const text = kurCagri.length === 1 ? 'Önce şunu netleştirelim: hangi dosya? (cevabım bir plan değil)'
+      : JSON.stringify({ ad: 'Kontrol Ekibi', amac: 'x', uyeler: [{ ad: 'tarayici', model: 'haiku', araclar: ['Read'], gorev: 'kırpışma desenlerini tara', bitis_olcutu: 'tablo' }] })
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'kur kırpışmayı kontrol et', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 80))
+  expect(kurCagri).toHaveLength(2)                                                  // bir kez yeniden soruldu
+  expect(kurCagri[1]).toMatch(/YALNIZ JSON döndür/)
+  expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:tarayici'])              // ikinci cevapla iş başladı
+})
