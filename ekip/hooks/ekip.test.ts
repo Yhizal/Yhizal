@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni } from './ekip.mjs'
-import { semaSvg } from './sema.mjs'
+import { semaSvg, kartYuksekligi } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -488,4 +488,45 @@ test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla pa
   await saat.advance(2600)
   expect(await svg()).not.toMatch(/Diğer çalışan ajanlar/)           // biten ajan çalışanlardan düşer
   await ui.unmount()
+})
+
+test('eşzamanlı başlayan üç ajan birbirinin kaydını ezmez (hepsi çalışıyor görünür)', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  let n = 0
+  on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: `p${++n}` }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await Promise.all(['ekip:kod-inceleyici', 'ekip:hizli-isci', 'ekip:hafif-isci'].map(t => $.agent.spawn({ prompt: `iş ${t}`, subagentType: t } as never)))
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  const svg = JSON.stringify(await ui.find({ type: 'Svg' } as never))
+  expect(svg).toMatch(/çalışıyor 3/)                                  // üçü de listede: kayıp güncelleme yok
+  await ui.unmount()
+})
+
+test('şema: çalışan → hata → biten → bekleyen sıralaması, bekleyenler tek satırlık çip, durum sayıları', () => {
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'kod-inceleyici', 'arayuz-gelistirici', 'firmware-analist'] }
+  const now = 10_000_000
+  const k: any[] = [
+    { id: 'a', tip: 'ekip:arayuz-gelistirici', model: 'claude-opus-5-5', durum: 'calisiyor', baslangic: now - 30_000, aciklama: 'widget' },
+    { id: 'b', tip: 'ekip:firmware-analist', model: 'claude-opus-5-5', durum: 'bitti', baslangic: now - 90_000, bitis: now - 1000, aciklama: 'dma' },
+  ]
+  const v: any = semaVerisi(ekip, k, { now })
+  expect(v.kademeler[0].uyeler.map((u: any) => [u.ad, u.durum])).toEqual([['arayuz-gelistirici', 'calisiyor'], ['firmware-analist', 'bitti'], ['kod-inceleyici', 'bekliyor']])
+  expect(v.sayim).toEqual({ calisiyor: 1, bitti: 1, hata: 0, bekliyor: 1 })
+  expect(kartYuksekligi({ durum: 'bekliyor' } as never)).toBe(28)
+  expect(kartYuksekligi({ durum: 'calisiyor' } as never)).toBe(68)
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/çalışıyor 1[\s\S]*bitti 1[\s\S]*bekliyor 1/)
+  const bos = semaSvg(semaVerisi(ekip, [], { now }))
+  expect(Number(/height="(\d+)"/.exec(bos)![1])).toBeLessThan(Number(/height="(\d+)"/.exec(svg)![1]))   // hepsi bekliyorken şema kısa
+})
+
+test('ÖZET satırında tam yollar dosya adına iner', () => {
+  expect(ozetSatiri('ÖZET: C:\\Users\\yhizal\\Projects\\yusuf-mods\\ekip\\hooks altındaki 5 dosya envanterlendi')).toBe('hooks altındaki 5 dosya envanterlendi')
+  expect(ozetSatiri('ÖZET: /yol/a/b.mjs güncellendi')).toBe('b.mjs güncellendi')
+  expect(ozetSatiri('ÖZET: 3 test eklendi')).toBe('3 test eklendi')
 })

@@ -377,7 +377,7 @@ function animasyon($) {
 }
 
 function cark($) {
-  if (ticker) return;
+  if (ticker || !panelAcik) return;
   // SADE modda 2,5 sn'de bir: canlı akışı, şu anki adımları ve süreleri tazeler. Şema düz resim; kaynak yalnız
   // içerik değişince değişir, bu yüzden boşta kalan tikler ekranı yeniden çizdirmez (kırpışma yok).
   ticker = $.clock.every(SADE ? 2500 : 150, async () => {
@@ -385,7 +385,8 @@ function cark($) {
     const { value: taslak = null } = await $.state.get(TASLAK);
     const { value: tur = null } = await $.state.get(TUR);
     const { value: dan = null } = await $.state.get(DANISMAN);
-    const hareket = k.some(x => x.durum === "calisiyor") || taslak?.durum === "hazirlaniyor" ||
+    for (const [id, t0] of canliIs) if (Date.now() - t0 > TAKILI_MS) canliIs.delete(id); // takılı koşu sayacı sonsuza dek açık tutmasın
+    const hareket = canliIs.size > 0 || k.some(x => x.durum === "calisiyor" && Date.now() - x.baslangic < TAKILI_MS) || taslak?.durum === "hazirlaniyor" ||
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor" || bekleyenIsler.length > 0 || kosuyorKuyruk;
     if (!hareket) { ticker?.cancel?.(); ticker = null; return; }
     // Raster şeritleri blit ile canlı; tam yeniden çizimi yalnız yazı spinner'ları için seyrek yap (~1.6 Hz).
@@ -870,10 +871,9 @@ async function elleSonKontrol($) {
 }
 
 async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
-  const { value: k = [] } = await $.state.get(KOSULAR);
-  if (k.some(x => x.id === id)) return;
   const kosu = { id, tip, aciklama: tek(aciklama, 140), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}), ...(beklenenDk ? { beklenenDk } : {}) };
-  await $.state.set(KOSULAR, [...k, kosu].slice(-MAX_KOSU));
+  canliIs.set(id, kosu.baslangic); // sayaç bunu await'siz görür: sayaç iptali ile yeni iş arasında yarış kalmaz
+  await kosularGuncelle($, k => (k.some(x => x.id === id) ? null : [...k, kosu].slice(-MAX_KOSU)));
   cark($);
   animasyon($);
 }
@@ -894,6 +894,21 @@ export async function baslat($, uye, gorev, tur, o = {}) {
 // ── Canlı akış: kim ne yapıyor. Modül değişkeni (state değil): her araç çağrısı paneli yeniden çizdirmesin;
 // panel akışı 3 sn'lik canlı sayaçla (cark) okur. ──
 const akis = [];
+let panelAcik = false;        // panel hiç açılmadıysa sayaç boşuna çizdirmesin
+const canliIs = new Map();    // koşu kimliği → başlangıç; sayaç kararı eşzamanlı (await'siz) okunur
+const TAKILI_MS = 45 * 60_000; // bu kadar süredir 'çalışıyor' kalan koşu takılı sayılır
+let kosuSira = Promise.resolve();
+/** Koşu listesinin tüm "oku-değiştir-yaz" güncellemeleri tek sırada: paralel ajanlar birbirinin kaydını ezmesin.
+ *  fn(liste) yeni liste döndürür ya da null (değişiklik yok). */
+function kosularGuncelle($, fn) {
+  const p = kosuSira.then(async () => {
+    const { value: k = [] } = await $.state.get(KOSULAR);
+    const y = fn(k);
+    if (y) await $.state.set(KOSULAR, y);
+  });
+  kosuSira = p.catch(() => {});
+  return p;
+}
 const sonEylem = new Map(); // üye → şu anki araç çağrısı
 let danOdak = "";           // danışmanın şu an ilgilendiği şey
 let animAcik = false; // varsayılan KAPALI: çerçeveli (SMIL) çizim her tazelemede yeniden yüklenip kırpışıyordu
@@ -903,7 +918,11 @@ export function akisEkle(uye, metin, kdm) {
   if (akis.length > 40) akis.length = 40;
   if (uye === "danisman") danOdak = tek(metin, 60);
 }
-export const ozetSatiri = cikti => { const m = String(cikti ?? "").match(/ÖZET:\s*(.+)/i); return m ? tek(m[1], 90) : ""; };
+export const ozetSatiri = cikti => {
+  const m = String(cikti ?? "").match(/ÖZET:\s*(.+)/i);
+  // Tam yollar bilgi taşımaz ("C:\Users\...\hooks" → "hooks"): son parçaya indirilir.
+  return m ? tek(m[1].replace(/(?:[A-Za-z]:)?(?:[\\/][^\s\\/]+)+/g, p => p.split(/[\\/]/).pop()), 90) : "";
+};
 export function eylemMetni(e) {
   const hedef = e.file_path ?? e.path ?? e.command ?? e.pattern ?? e.url ?? e.query ?? "";
   const kisa = tek(String(hedef).split(/[\\/]/).slice(-2).join("/"), 40);
@@ -935,6 +954,12 @@ export function semaVerisi(ekip, kosular, o = {}) {
           simdi: k?.durum === "calisiyor" ? sonEylem.get(k.id) ?? "" : "", ozet: k?.ozet ?? "" };
       }) };
   });
+  const SIRA = { calisiyor: 0, hata: 1, iptal: 1, bitti: 2, bekliyor: 3 };
+  for (const kd of kademeler) kd.uyeler.sort((a, b) => (SIRA[a.durum] ?? 3) - (SIRA[b.durum] ?? 3)); // çalışan → hata → biten → bekleyen
+  const digerHam = kosular.filter(x => x.durum === "calisiyor" && now - x.baslangic < TAKILI_MS && x.tip !== `${P}:model-izci`
+    && !(x.tip.startsWith(`${P}:`) && ekip.uyeler.includes(x.tip.slice(P.length + 1))));
+  const sayim = { calisiyor: digerHam.length, bitti: 0, hata: 0, bekliyor: 0 };
+  for (const kd of kademeler) for (const u of kd.uyeler) sayim[u.durum === "iptal" ? "hata" : u.durum] = (sayim[u.durum === "iptal" ? "hata" : u.durum] ?? 0) + 1;
   const t = o.tur;
   const maxTur = t ? Math.min(MAX_TUR, BUTCE_AYAR[t.butce ?? "normal"]?.maxTur ?? MAX_TUR) : MAX_TUR;
   const tur = !t ? { yazi: "beklemede", renk: "#A1A1AA" } : t.durum === "calisiyor" ? { yazi: `tur ${t.no}/${maxTur} çalışıyor`, renk: "#0EA5E9" }
@@ -954,7 +979,8 @@ export function semaVerisi(ekip, kosular, o = {}) {
     kademeler, anim: o.anim !== false,
     akis: akis.slice(0, 8),
     // Ekip üyesi olmayan çalışan ajanlar (ana oturumun başlattıkları): görev + şu anki adım
-    diger: kosular.filter(x => x.durum === "calisiyor" && !(x.tip.startsWith(`${P}:`) && ekip.uyeler.includes(x.tip.slice(P.length + 1))))
+    sayim, digerFazla: Math.max(0, digerHam.length - 4),
+    diger: digerHam
       .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: sonEylem.get(x.id) ?? "", sure: sureKisa(now - x.baslangic, false) })),
   };
 }
@@ -987,6 +1013,7 @@ export function register(on) {
   on("command.run", { command: "ekip" }, async ($, e) => {
     const args = String(e.args ?? "").trim();
     await $.ui.open({ id: PANE, title: "Ajan Ekibi", focus: true, closeOnEscape: true });
+    panelAcik = true;
     animasyon($);
     cark($);
     if (/^sor\s+/i.test(args)) { void sor($, args.replace(/^sor\s+/i, "")); return { text: "Soru danışmana gitti; cevap panelde." }; }
@@ -1056,12 +1083,17 @@ export function register(on) {
   on("turn.complete", async ($, e, next) => {
     const r = await next(e);
     if (!e.agentId) return r;
-    const { value: k = [] } = await $.state.get(KOSULAR);
-    const i = k.findIndex(x => x.id === e.agentId);
-    if (i < 0) return r;
+    canliIs.delete(e.agentId);
+    sonEylem.delete(e.agentId); // koşu listede olmasa da (kırpılmış) kayıt sızmasın
     const durum = e.isAborted ? "iptal" : e.reason && e.reason !== "answer" ? "hata" : "bitti";
-    const kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000), ozet: ozetSatiri(e.answer) };
-    await $.state.set(KOSULAR, k.map((x, j) => (j === i ? kosu : x)));
+    let kosu = null;
+    await kosularGuncelle($, k => {
+      const i = k.findIndex(x => x.id === e.agentId);
+      if (i < 0) return null;
+      kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000), ozet: ozetSatiri(e.answer) };
+      return k.map((x, j) => (j === i ? kosu : x));
+    });
+    if (!kosu) return r;
     if (durum === "bitti" && (kosu.adim ?? 0) > 0) {
       const { value: b = {} } = await $.state.get(ADIM_BELLEK);
       const yeni = { ...b, [kosu.tip]: [...(b[kosu.tip] ?? []), { s: kosu.adim, d: kosu.bitis - kosu.baslangic }].slice(-ORNEK_MAX) };
@@ -1089,9 +1121,10 @@ export function register(on) {
   // Canlı akış: ekip işçilerinin her araç çağrısı "şu an ne yapıyor" olarak kaydedilir.
   on("tool.call", async ($, e, next) => {
     if (e.agentId) {
+      cark($);
       const { value: k = [] } = await $.state.get(KOSULAR);
       const kosu = k.find(x => x.id === e.agentId);
-      if (kosu) {
+      if (kosu?.durum === "calisiyor") {
         const uye = kosu.tip.replace(new RegExp(`^${P}:`), ""), m = eylemMetni(e);
         sonEylem.set(kosu.id, m);
         akisEkle(uye, m, kademe(kosu.model));
@@ -1103,14 +1136,14 @@ export function register(on) {
   on("turn.step", async function* ($, e, next) {
     const r = yield* next(e);
     if (!e.agentId) return r;
-    const { value: k = [] } = await $.state.get(KOSULAR);
-    if (k.some(x => x.id === e.agentId && x.durum === "calisiyor"))
-      await $.state.set(KOSULAR, k.map(x => (x.id === e.agentId ? { ...x, adim: e.index + 1 } : x)));
+    await kosularGuncelle($, k => (k.some(x => x.id === e.agentId && x.durum === "calisiyor")
+      ? k.map(x => (x.id === e.agentId ? { ...x, adim: e.index + 1 } : x)) : null));
     return r;
   });
 
   on("ui.render", { component: "Pane", requestId: PANE }, async ($, e) => {
     const { Box, Text, Button, Input, Select, Markdown, Raster, Svg } = $.ui.resolve(e);
+    panelAcik = true; // panel çiziliyorsa açıktır (komutla ya da sıcak yeniden yüklemeden sonra); ajan etkinliği sayacı başlatır
     const { value: kosular = [] } = await $.state.get(KOSULAR);
     const { value: dan = null } = await $.state.get(DANISMAN);
     const { value: mod = null } = await $.state.get(MOD);

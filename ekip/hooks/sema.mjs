@@ -10,7 +10,7 @@ export const KADEME_RENK = { danışman: "#C026D3", uzman: "#2563EB", hızlı: "
 const DURUM_RENK = { calisiyor: "#0EA5E9", bitti: "#16A34A", hata: "#DC2626", iptal: "#DC2626", bekliyor: "#A1A1AA" };
 
 const STIL = `<style>
-  .kart{fill:#FFFFFF;stroke:#E4E4E7}.zemin{fill:#F4F4F5}.yazi{fill:#18181B}.mut{fill:#71717A}.cizgi{stroke:#D4D4D8}.trk{fill:#000000;fill-opacity:.08}
+  .kart{fill:#FFFFFF;stroke:#E4E4E7}.zemin{fill:#F4F4F5}.yazi{fill:#18181B}.mut{fill:#5B5B65}.cizgi{stroke:#D4D4D8}.trk{fill:#000000;fill-opacity:.08}
   @media (prefers-color-scheme:dark){.kart{fill:#232327;stroke:#3F3F46}.zemin{fill:#1A1A1D}.yazi{fill:#F4F4F5}.mut{fill:#A1A1AA}.cizgi{stroke:#52525B}.trk{fill:#FFFFFF;fill-opacity:.12}}
 </style>`;
 const k = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
@@ -56,19 +56,27 @@ function kademeBaslik(kd, x, y, w) {
     <rect x=".5" y=".5" width="${w - 1}" height="4" rx="2" fill="${renk}"/>
     <text x="12" y="22" font-size="12.5" font-weight="700" fill="${renk}">${k(kd.etiket)}</text>
     <text x="${Math.max(64, 12 + Math.round(kd.etiket.length * 8.4) + 8)}" y="22" font-size="11" font-weight="600" class="yazi">${k(kd.modelAd)}</text>
-    <text x="12" y="34" font-size="9.5" class="mut">${k(kisalt(kd.alt, Math.round((w - 20) / 5)))}</text></g>`;
+    <text x="12" y="34" font-size="10" class="mut">${k(kisalt(kd.alt, Math.round((w - 20) / 5)))}</text></g>`;
 }
 
 /** Üye kartı: durum noktası, ad, yüzde ve süre, ilerleme çubuğu, görev; brif rozeti. */
+/** Kart yüksekliği: bekleyen üye tek satırlık çip, işi olan tam kart. */
+export const kartYuksekligi = u => (u.durum === "bekliyor" ? 28 : 68);
 function uyeKart(u, x, y, w, anim = false) {
   const renk = DURUM_RENK[u.durum] ?? DURUM_RENK.bekliyor;
+  if (u.durum === "bekliyor") {
+    return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="27" rx="8" class="kart"/>
+    <circle cx="14" cy="14" r="4" fill="${renk}"/>
+    <text x="25" y="18" font-size="11.5" font-weight="600" class="mut">${k(kisalt(u.ad, Math.round((w - 80) / 6.5)))}</text>
+    <text x="${w - 10}" y="18" text-anchor="end" font-size="10.5" class="mut">bekliyor</text></g>`;
+  }
   const ikon = u.durum === "bitti" ? "✓" : u.durum === "hata" || u.durum === "iptal" ? "✕" : "";
   const sag = u.durum === "bekliyor" ? "bekliyor" : `${u.yuzde}% · ${u.sure}`;
   const bw = w - 24, dolu = Math.round(bw * Math.min(100, u.yuzde) / 100);
   const calisiyor = u.durum === "calisiyor";
   // Satır 3: çalışırken şu anki eylem, bitince bulgu (ÖZET), yoksa görev.
   const gorevYazi = u.gorev || "görev bekliyor";
-  const simdiYazi = calisiyor ? (u.simdi ? `▸ ${u.simdi}` : "▸ başlıyor…") : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.durum === "hata" ? "✕ hatayla bitti" : "";
+  const simdiYazi = calisiyor ? (u.simdi ? `▸ ${u.simdi}` : "▸ başlıyor…") : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.durum === "hata" ? "✕ hatayla bitti" : u.durum === "iptal" ? "✕ iptal edildi" : "";
   const nokta = calisiyor && anim
     ? `<circle cx="14" cy="15" r="5" fill="${renk}"><animate attributeName="r" values="4;6.5;4" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="1.2s" repeatCount="indefinite"/></circle>`
     : `<circle cx="14" cy="15" r="5" fill="${renk}"/>`;
@@ -90,11 +98,13 @@ function uyeKart(u, x, y, w, anim = false) {
 export function semaSvg(m) {
   const KY = 72, BUS = 150, KB = 162, UY = 212, UH = 68, UG = 8;
   const n = m.kademeler.length || 1, gap = 10, cw = Math.floor((SW - gap * (n - 1)) / n);
-  const enCok = Math.max(1, ...m.kademeler.map(kd => kd.uyeler.length));
+  // Her kartın kendi yüksekliği var (bekleyenler çip): sütun içinde yukarıdan aşağı biriktir.
+  const kartYer = m.kademeler.map(kd => { let y = UY; return kd.uyeler.map(u => { const h = kartYuksekligi(u); const r = { y, h }; y += h + UG; return r; }); });
+  const enYuksek = Math.max(24, ...kartYer.map(a => (a.length ? a[a.length - 1].y + a[a.length - 1].h - UY : 24)));
   const anim = m.anim !== false;
   const akis = (m.akis ?? []).slice(0, 8);
   const diger = (m.diger ?? []).slice(0, 4);
-  const digerY = UY + enCok * (UH + UG) + 6;
+  const digerY = UY + enYuksek + 6;
   const digerH = diger.length ? 24 + diger.length * 34 : 0;
   const akisY = digerY + digerH + (digerH ? 6 : 0);
   const akisH = akis.length ? 24 + akis.length * 15 : 0;
@@ -115,10 +125,10 @@ export function semaSvg(m) {
       cizgiler += akim(`M${SW / 2} ${BUS} H${orta(i)} V${KB}`, renk, anim);
     }
     if (kd.uyeler.length) {
-      const rx = sx(i) + 10, son = UY + (kd.uyeler.length - 1) * (UH + UG) + UH / 2;
+      const rx = sx(i) + 10, son = kartYer[i].at(-1).y + kartYer[i].at(-1).h / 2;
       cizgiler += `<path d="M${rx} ${KB + 40} V${son}" class="cizgi" stroke-width="1.5" fill="none"/>`;
       kd.uyeler.forEach((u, j) => {
-        const yy = UY + j * (UH + UG) + UH / 2;
+        const yy = kartYer[i][j].y + kartYer[i][j].h / 2;
         cizgiler += `<path d="M${rx} ${yy} H${rx + 10}" class="cizgi" stroke-width="1.5" fill="none"/>`;
         if (u.durum === "calisiyor") cizgiler += akim(`M${rx} ${KB + 40} V${yy} H${rx + 10}`, renk, anim);
       });
@@ -126,13 +136,14 @@ export function semaSvg(m) {
   });
   const sutunlar = m.kademeler.map((kd, i) =>
     kademeBaslik(kd, sx(i), KB, cw) +
-    (kd.uyeler.length ? kd.uyeler.map((u, j) => uyeKart(u, sx(i) + 20, UY + j * (UH + UG), cw - 20, anim)).join("")
+    (kd.uyeler.length ? kd.uyeler.map((u, j) => uyeKart(u, sx(i) + 20, kartYer[i][j].y, cw - 20, anim)).join("")
       : `<text x="${orta(i)}" y="${UY + 20}" text-anchor="middle" font-size="10.5" class="mut">bu kademede üye yok</text>`)).join("");
+  const sayim = m.sayim ?? {};
   const lejant = [["calisiyor", "çalışıyor"], ["bitti", "bitti"], ["hata", "hata"], ["bekliyor", "bekliyor"]]
-    .map(([d, t], i) => `<circle cx="${14 + i * 86}" cy="${H - 10}" r="4" fill="${DURUM_RENK[d]}"/><text x="${22 + i * 86}" y="${H - 6.5}" font-size="10" class="mut">${t}</text>`).join("");
+    .map(([d, t], i) => `<circle cx="${14 + i * 104}" cy="${H - 10}" r="4" fill="${DURUM_RENK[d]}"/><text x="${22 + i * 104}" y="${H - 6.5}" font-size="10.5" ${sayim[d] ? 'font-weight="700" class="yazi"' : 'class="mut"'}>${t}${sayim[d] != null ? ` ${sayim[d]}` : ""}</text>`).join("");
   // Ekip dışı çalışan ajanlar (ana oturumun başlattıkları): ad, süre, görev ve şu anki adım.
   const digerSvg = diger.length ? `<g transform="translate(0 ${digerY})"><rect x=".5" y=".5" width="${SW - 1}" height="${digerH - 4}" rx="8" class="kart"/>
-    <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Diğer çalışan ajanlar</text>
+    <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Diğer çalışan ajanlar${m.digerFazla ? ` (+${m.digerFazla} daha)` : ""}</text>
     ${diger.map((d, i) => `<g transform="translate(0 ${24 + i * 34})"><circle cx="18" cy="9" r="4" fill="${DURUM_RENK.calisiyor}"/>
       <text x="30" y="12" font-size="11" font-weight="700" class="yazi">${k(kisalt(d.ad, 22))}</text>
       <text x="200" y="12" font-size="10" font-weight="600" fill="${DURUM_RENK.calisiyor}">${k(kisalt(d.simdi ? `▸ ${d.simdi}` : "▸ çalışıyor", 52))}</text>
@@ -142,7 +153,7 @@ export function semaSvg(m) {
   const akisSvg = akis.length ? `<g transform="translate(0 ${akisY})"><rect x=".5" y=".5" width="${SW - 1}" height="${akisH - 4}" rx="8" class="kart"/>
     <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Canlı akış</text>
     ${anim ? `<circle cx="84" cy="12.5" r="3" fill="#DC2626"><animate attributeName="opacity" values="1;.2;1" dur="1.4s" repeatCount="indefinite"/></circle>` : ""}
-    ${akis.map((a, i) => `<g transform="translate(0 ${24 + i * 15})"><text x="12" y="9" font-size="9.5" class="mut">${k(a.z)}</text>
+    ${akis.map((a, i) => `<g transform="translate(0 ${24 + i * 15})"><text x="12" y="9" font-size="10" class="mut">${k(a.z)}</text>
       <circle cx="68" cy="6" r="3.5" fill="${KADEME_RENK[a.kademe] ?? KADEME_RENK.danışman}"/>
       <text x="78" y="9" font-size="10.5" font-weight="${i === 0 ? 700 : 600}" class="yazi">${k(kisalt(a.uye, 16))}</text>
       <text x="170" y="9" font-size="10.5" class="${i === 0 ? "yazi" : "mut"}">${k(kisalt(a.metin, 78))}</text></g>`).join("")}</g>` : "";
