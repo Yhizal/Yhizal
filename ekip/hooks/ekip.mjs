@@ -678,7 +678,11 @@ async function onayla($) {
   for (const u of ilkler) { const r = await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun }); if (r.deny) reddedilen.push(r.deny); }
   // Hiçbir ajan başlamadıysa (ör. plan modu spawn'ı reddederse) sessiz kalma: panelde nedeni göster.
   if (ilkler.length && reddedilen.length === ilkler.length) {
-    await $.state.set(TASLAK, { durum: "hata", hedef: taslak.hedef, hata: `Ajanlar başlatılamadı: ${tek(reddedilen[0], 130)}${planModu ? " — plan modundasın; Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}` });
+    const izinSiniflandirici = /classifier/i.test(reddedilen[0]);
+    await $.state.set(TASLAK, { durum: "hata", hedef: taslak.hedef, hata: `Ajanlar başlatılamadı: ${izinSiniflandirici
+      ? "auto modun izin denetimi ekip ajanı başlatmaya onay vermedi (istek ajan istemiyor sayıldı). Modu değiştir (Shift+Tab) ya da ayarlarda Agent(ekip:*) için izin kuralı ekle, sonra /ekip'i yeniden çalıştır."
+      : tek(reddedilen[0], 130)}${planModu ? " — plan modundasın; Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}` });
+    await $.state.set(TUR, { no: 1, durum: "bitti", yogun: Boolean(taslak.yogun), butce: taslak.butce ?? "normal" }); // "Tur 1/3 çalışıyor" takılı kalmasın
     return;
   }
   if (taslak.yogun) izlemeyiBaslat($);
@@ -998,7 +1002,8 @@ export async function baslat($, uye, gorev, tur, o = {}) {
   // Denetmenin kademe atamaları (kademeOverride) danışmanın planındaki modelin yerine geçer.
   const ov = (await $.store.get("kademeOverride")) ?? {};
   const model = o.model ?? ov[uye];
-  const r = await $.agent.spawn({ subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(model ? { model } : {}) });
+  const istek = { subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(model ? { model } : {}) };
+  const r = await $.agent.spawn(istek);
   if (r.deny) $.ui.toast(`ekip: ${uye} başlatılamadı — ${r.deny}`);
   else if (r.agentId) await kosuEkle($, r.agentId, `${P}:${uye}`, gorev, r.model ?? o.model, tur, o.beklenenDk);
   return r;

@@ -757,3 +757,25 @@ test('plan modu: işçiler salt-okur uyarısıyla başlar, Fable bilgilenir; aja
     await ui.unmount()
   } finally { await $.agent.spawn({ prompt: 'y', subagentType: 'general-purpose', permissionMode: 'default' } as never) }
 })
+
+test('auto mod sınıflandırıcısı ajan başlatmayı reddederse: panelde sebep ve çözüm yazar, tur takılı kalmaz', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Oto Ekip', amac: 'x', uyeler: [{ ad: 'okuyucu', model: 'sonnet', araclar: ['Read'], gorev: 'oku', bitis_olcutu: 'rapor' }] }) } } as never
+  })
+  on('agent.spawn', () => ({ deny: 'The server-side auto mode classifier gave no verdict for Agent: the request that produced this action did not ask for one.' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'arayüzü yenile', origin: 'user' } as never)
+  await new Promise(x => setTimeout(x, 100))
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  expect(await ui.find({ type: 'Text', text: /auto modun izin denetimi.*Agent\(ekip:\*\)/ })).toBeDefined()
+  expect(await ui.find({ type: 'Text', text: /Tur 1\/\d+ çalışıyor/ })).toBeUndefined()
+  await ui.unmount()
+})
