@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni } from './ekip.mjs'
-import { semaSvg, kartYuksekligi } from './sema.mjs'
+import { semaSvg, kartYuksekligi, ikonSec } from './sema.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -529,4 +529,28 @@ test('ÖZET satırında tam yollar dosya adına iner', () => {
   expect(ozetSatiri('ÖZET: C:\\Users\\yhizal\\Projects\\yusuf-mods\\ekip\\hooks altındaki 5 dosya envanterlendi')).toBe('hooks altındaki 5 dosya envanterlendi')
   expect(ozetSatiri('ÖZET: /yol/a/b.mjs güncellendi')).toBe('b.mjs güncellendi')
   expect(ozetSatiri('ÖZET: 3 test eklendi')).toBe('3 test eklendi')
+})
+
+test('dinamik ikon: bitti/hata, çalışırken o anki araç, yoksa rol; şemada çizilir', () => {
+  const c = (ad: string, simdi = '', durum = 'calisiyor') => ikonSec({ ad, simdi, durum } as never)
+  expect(c('kod-inceleyici', 'Read src/a.ts')).toBe('belge')
+  expect(c('kod-inceleyici', 'Grep baglanti backend/')).toBe('ara')
+  expect(c('hizli-isci', 'Edit ekip.mjs')).toBe('kalem')
+  expect(c('hizli-isci', 'Bash pytest -q')).toBe('test')
+  expect(c('hizli-isci', 'Bash claude plugin test ekip')).toBe('test')
+  expect(c('hizli-isci', 'Bash git status')).toBe('dal')
+  expect(c('hizli-isci', 'Bash npm run build')).toBe('cark')
+  expect(c('hizli-isci', 'Bash ls -la')).toBe('terminal')
+  expect(c('model-izci', 'WebFetch platform.claude.com/docs')).toBe('kure')
+  expect(c('general-purpose', 'Agent iş')).toBe('ag')
+  expect(c('hafif-isci')).toBe('liste')                                 // çalışıyor ama eylem yok → rol ikonu
+  expect(c('hafif-isci', '', 'bitti')).toBe('check')
+  expect(c('test-yazici', 'Bash pytest', 'hata')).toBe('x')
+  expect(c('test-yazici', '', 'bekliyor')).toBe('test')                 // boştayken rol ikonu
+  expect(c('bilinmeyen-ajan', '', 'bekliyor')).toBe('nokta')
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'kod-inceleyici'] }
+  const k: any[] = [{ id: 'a', tip: 'ekip:kod-inceleyici', model: 'claude-opus-5-5', durum: 'calisiyor', baslangic: 1_000_000, aciklama: 'incele' }]
+  const svg = semaSvg(semaVerisi(ekip, k, { now: 1_030_000 }))
+  expect(svg).toMatch(/<g transform="translate\(\d+ \d+\)" fill="none" stroke="#FFFFFF"[^>]*><path d="M5 2a3 3 0 1 0/)   // rol ikonu (büyüteç) çizildi
+  expect(svg).not.toMatch(/<script|on[a-z]+=/i)
 })

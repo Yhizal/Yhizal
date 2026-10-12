@@ -23,6 +23,56 @@ function hap(x, y, yazi, renk, sag = false) {
     <circle cx="10" cy="10" r="3" fill="${renk}"/><text x="17" y="14" font-size="11" font-weight="600" fill="${renk}">${k(yazi)}</text></g>` };
 }
 
+// ── Dinamik ikonlar: 12×12 çizgi glifler; beyaz, durum renginde yuvarlağın içinde ──
+const GLIF = {
+  belge: "M3 1.5h4l2 2v7H3z M7 1.5v2h2",
+  ara: "M5 2a3 3 0 1 0 .01 0z M7.3 7.3L10.5 10.5",
+  kalem: "M2 10l.8-2.6L8 2.2l1.8 1.8-5.2 5.2z M7 3.2l1.8 1.8",
+  terminal: "M2 3l3 3-3 3 M6.5 9.5h3.5",
+  test: "M4.5 1.5h3 M5 1.5v3L2.5 9.5a1 1 0 0 0 .9 1.5h5.2a1 1 0 0 0 .9-1.5L7 4.5v-3",
+  dal: "M3.5 2v8 M8.5 2.5c0 2.5-2 3.5-5 3.5 M3.5 2h.1 M8.5 2.5h.1 M3.5 10h.1",
+  kure: "M6 1.5a4.5 4.5 0 1 0 .01 0z M1.5 6h9 M6 1.5c-2 2.2-2 6.8 0 9 M6 1.5c2 2.2 2 6.8 0 9",
+  cark: "M6 4a2 2 0 1 0 .01 0z M6 1v1.5 M6 9.5V11 M1 6h1.5 M9.5 6H11 M2.5 2.5l1 1 M8.5 8.5l1 1 M9.5 2.5l-1 1 M3.5 8.5l-1 1",
+  liste: "M4 3h6 M4 6h6 M4 9h6 M2 3h.1 M2 6h.1 M2 9h.1",
+  cip: "M3 3h6v6H3z M5 1v2 M7 1v2 M5 9v2 M7 9v2 M1 5h2 M1 7h2 M9 5h2 M9 7h2",
+  pencere: "M1.5 2.5h9v7h-9z M1.5 4.5h9",
+  yildiz: "M6 1.5l1.4 3 3.1.4-2.3 2.1.6 3.1L6 8.6 3.2 10.1l.6-3.1L1.5 4.9l3.1-.4z",
+  ag: "M6 2.5a1.5 1.5 0 1 0 .01 0z M2.5 9.5a1.5 1.5 0 1 0 .01 0z M9.5 9.5a1.5 1.5 0 1 0 .01 0z M6 4.5v2 M6 6.5L3.2 8.2 M6 6.5l2.8 1.7",
+  check: "M2.5 6.5l2.5 2.5 4.5-5",
+  x: "M3 3l6 6 M9 3l-6 6",
+  nokta: "M6 6h.1",
+};
+const ROL_IKON = { "kod-inceleyici": "ara", "test-yazici": "test", "hizli-isci": "cark", "hafif-isci": "liste", dokumantasyoncu: "belge",
+  "firmware-analist": "cip", "arayuz-gelistirici": "pencere", "model-izci": "kure", "general-purpose": "yildiz", denetmen: "ara" };
+/** Üyenin ikonu: bitti ✓, hata ✕, çalışırken o anki araç (Read/Grep/Edit/Bash…), yoksa rolü. */
+export function ikonSec(u) {
+  if (u.durum === "bitti") return "check";
+  if (u.durum === "hata" || u.durum === "iptal") return "x";
+  const rol = ROL_IKON[String(u.ad ?? "").replace(/^ekip:/, "")] ?? "nokta";
+  if (u.durum !== "calisiyor") return rol;
+  const m = String(u.simdi ?? "").match(/^([A-Za-z_]+)\s*(.*)$/);
+  if (!m) return rol;
+  const [, arac, arg] = m;
+  if (/^(Read|NotebookRead)$/i.test(arac)) return "belge";
+  if (/^(Grep|Glob|LS)$/i.test(arac)) return "ara";
+  if (/^(Edit|Write|NotebookEdit|MultiEdit)$/i.test(arac)) return "kalem";
+  if (/^(WebFetch|WebSearch)$/i.test(arac)) return "kure";
+  if (/^(Agent|Task)$/i.test(arac)) return "ag";
+  if (/^Bash$/i.test(arac)) {
+    if (/\b(test|pytest|vitest|jest|unittest)\b/i.test(arg)) return "test";
+    if (/^git\b/i.test(arg)) return "dal";
+    if (/\b(build|make|tsc|compile|cmake|webpack|vite)\b/i.test(arg)) return "cark";
+    return "terminal";
+  }
+  return rol;
+}
+/** Durum renginde yuvarlak + beyaz glif; çalışırken (anim) hafif nabız. */
+function ikonCiz(cx, cy, r, key, renk, nabiz = false) {
+  const g = GLIF[key] ?? GLIF.nokta;
+  return `<g><circle cx="${cx}" cy="${cy}" r="${r}" fill="${renk}">${nabiz ? '<animate attributeName="opacity" values="1;.55;1" dur="1.2s" repeatCount="indefinite"/>' : ""}</circle>
+    <g transform="translate(${cx - 6} ${cy - 6})" fill="none" stroke="#FFFFFF" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"><path d="${g}"/></g></g>`;
+}
+
 /** Başlık çubuğu: ekip adı, amaç; sağda tur, bütçe ve son kontrol rozetleri. */
 function baslik(m) {
   let x = SW - 12, rozet = "";
@@ -66,24 +116,21 @@ function uyeKart(u, x, y, w, anim = false) {
   const renk = DURUM_RENK[u.durum] ?? DURUM_RENK.bekliyor;
   if (u.durum === "bekliyor") {
     return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="27" rx="8" class="kart"/>
-    <circle cx="14" cy="14" r="4" fill="${renk}"/>
-    <text x="25" y="18" font-size="11.5" font-weight="600" class="mut">${k(kisalt(u.ad, Math.round((w - 80) / 6.5)))}</text>
+    ${ikonCiz(16, 14, 8, ikonSec(u), "#A1A1AA")}
+    <text x="30" y="18" font-size="11.5" font-weight="600" class="mut">${k(kisalt(u.ad, Math.round((w - 90) / 6.5)))}</text>
     <text x="${w - 10}" y="18" text-anchor="end" font-size="10.5" class="mut">bekliyor</text></g>`;
   }
-  const ikon = u.durum === "bitti" ? "✓" : u.durum === "hata" || u.durum === "iptal" ? "✕" : "";
   const sag = u.durum === "bekliyor" ? "bekliyor" : `${u.yuzde}% · ${u.sure}`;
   const bw = w - 24, dolu = Math.round(bw * Math.min(100, u.yuzde) / 100);
   const calisiyor = u.durum === "calisiyor";
   // Satır 3: çalışırken şu anki eylem, bitince bulgu (ÖZET), yoksa görev.
   const gorevYazi = u.gorev || "görev bekliyor";
   const simdiYazi = calisiyor ? (u.simdi ? `▸ ${u.simdi}` : "▸ başlıyor…") : u.durum === "bitti" && u.ozet ? `✓ ${u.ozet}` : u.durum === "hata" ? "✕ hatayla bitti" : u.durum === "iptal" ? "✕ iptal edildi" : "";
-  const nokta = calisiyor && anim
-    ? `<circle cx="14" cy="15" r="5" fill="${renk}"><animate attributeName="r" values="4;6.5;4" dur="1.2s" repeatCount="indefinite"/><animate attributeName="opacity" values="1;.4;1" dur="1.2s" repeatCount="indefinite"/></circle>`
-    : `<circle cx="14" cy="15" r="5" fill="${renk}"/>`;
+  const nokta = ikonCiz(16, 16, 8.5, ikonSec(u), renk, calisiyor && anim);
   const isilti = calisiyor && anim && dolu > 22 ? `<rect x="12" y="27" width="14" height="4" rx="2" fill="#FFFFFF" fill-opacity=".6"><animate attributeName="x" values="12;${12 + dolu - 14};12" dur="1.8s" repeatCount="indefinite"/></rect>` : "";
   return `<g transform="translate(${x} ${y})"><rect x=".5" y=".5" width="${w - 1}" height="67" rx="8" class="kart"/>
-    ${nokta}${ikon ? `<text x="14" y="18.5" text-anchor="middle" font-size="8" font-weight="800" fill="#FFFFFF">${ikon}</text>` : ""}
-    <text x="25" y="19" font-size="12" font-weight="700" class="yazi">${k(kisalt(u.ad, Math.round((w - 90) / 6.8)))}</text>
+    ${nokta}
+    <text x="30" y="20" font-size="11" font-weight="700" class="yazi">${k(kisalt(u.ad, Math.round((w - 88) / 6.1)))}</text>
     <text x="${w - 10}" y="19" text-anchor="end" font-size="10.5" font-weight="600" fill="${u.durum === "bekliyor" ? "#A1A1AA" : renk}">${k(sag)}</text>
     <rect x="12" y="27" width="${bw}" height="4" rx="2" class="trk"/>${dolu > 0 ? `<rect x="12" y="27" width="${Math.max(4, dolu)}" height="4" rx="2" fill="${renk}"/>` : ""}${isilti}
     <text x="12" y="45" font-size="10" class="yazi">${k(kisalt(gorevYazi, Math.round((w - (u.brif ? 60 : 20)) / 5.2)))}</text>
@@ -144,8 +191,8 @@ export function semaSvg(m) {
   // Ekip dışı çalışan ajanlar (ana oturumun başlattıkları): ad, süre, görev ve şu anki adım.
   const digerSvg = diger.length ? `<g transform="translate(0 ${digerY})"><rect x=".5" y=".5" width="${SW - 1}" height="${digerH - 4}" rx="8" class="kart"/>
     <text x="12" y="16" font-size="11" font-weight="700" class="yazi">Diğer çalışan ajanlar${m.digerFazla ? ` (+${m.digerFazla} daha)` : ""}</text>
-    ${diger.map((d, i) => `<g transform="translate(0 ${24 + i * 34})"><circle cx="18" cy="9" r="4" fill="${DURUM_RENK.calisiyor}"/>
-      <text x="30" y="12" font-size="11" font-weight="700" class="yazi">${k(kisalt(d.ad, 22))}</text>
+    ${diger.map((d, i) => `<g transform="translate(0 ${24 + i * 34})">${ikonCiz(18, 9, 7.5, ikonSec({ ad: d.ad, simdi: d.simdi, durum: "calisiyor" }), DURUM_RENK.calisiyor, anim)}
+      <text x="32" y="13" font-size="11" font-weight="700" class="yazi">${k(kisalt(d.ad, 22))}</text>
       <text x="200" y="12" font-size="10" font-weight="600" fill="${DURUM_RENK.calisiyor}">${k(kisalt(d.simdi ? `▸ ${d.simdi}` : "▸ çalışıyor", 52))}</text>
       <text x="${SW - 12}" y="12" text-anchor="end" font-size="10" class="mut">${k(d.sure)}</text>
       <text x="30" y="26" font-size="10" class="mut">${k(kisalt(d.gorev, 96))}</text></g>`).join("")}</g>` : "";
