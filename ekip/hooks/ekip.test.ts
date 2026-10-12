@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
 import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni } from './ekip.mjs'
-import { panoSvg as semaSvg, ikonSec } from './pano.mjs'
+import { sadeSvg as semaSvg, ikonSec, adimCumlesi } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -228,7 +228,7 @@ test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şe
       expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
       expect(s).not.toMatch(/isInteractive.?.?:.?true/)                           // düz resim, çerçeve yok (kırpışmaz)
       expect(s).not.toMatch(/<animate/)                                            // animasyon yok
-      expect(s).toMatch(/OLAY GÜNLÜĞÜ|test-yazici/)                                // günlük ve üye yazıyla görünür
+      expect(s).toMatch(/Ajanlar|test-yazici/)                                     // ajan listesi yazıyla görünür
     }
     await ui.unmount()
   }
@@ -399,8 +399,7 @@ test('ekip şeması: kademeler (ast-üst), üye kartları, rozetler; yüzde 5 ve
   const svg = semaSvg(v)
   expect(svg).toMatch(/^<svg [^>]*width="640"/)
   expect(svg).toMatch(/Danışman/)
-  expect(svg).toMatch(/DANIŞMAN · Fable 5\.1[\s\S]*HIZLI · [\s\S]*HAFIF · /)               // kademe başlıkları, ast-üst sırayla
-  expect(svg).not.toMatch(/UZMAN · /)                                               // üyesiz kademe çizilmez
+  expect(svg).toMatch(/Danışman[\s\S]*Fable 5\.1[\s\S]*Ajanlar/)                    // danışman en üstte, altında ajanlar
   expect(svg).not.toMatch(/<script|on[a-z]+=/i)                                    // betik ve olay özniteliği yok
   expect(svg).not.toMatch(/<animate/)                                              // animasyon yok
   expect(svg).toMatch(/class="acc"[^>]*\/>/)                                       // çalışan üyenin çubuğu vurgu renginde
@@ -457,8 +456,8 @@ test('canlı akış: eylem metni, ÖZET satırı; akış şemada en yeni üstte,
   expect(v.danisman.odak).toMatch(/brif #1/)                                        // danışman neyle ilgileniyor
   expect(v.kademeler[1].uyeler[0].ozet).toBe('3 test eklendi')                      // tespit
   const svg = semaSvg(v)
-  expect(svg).toMatch(/OLAY GÜNLÜĞÜ/)
-  expect(svg).toMatch(/>danisman<[\s\S]*>kod-inceleyici</)
+  expect(svg).toMatch(/Son olaylar/)
+  expect(svg).toMatch(/Son olaylar[\s\S]*>Danışman<[\s\S]*>kod-inceleyici</)
   expect(svg).toMatch(/3 test eklendi/)                                             // biten üyenin bulgusu ayrıntı sütununda
   expect(semaSvg({ ...v, anim: false })).not.toMatch(/<animate/)
 })
@@ -477,16 +476,17 @@ test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla pa
   const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
     props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
   const svg = async () => JSON.stringify(await ui.find({ type: 'Svg' } as never))
-  expect(await svg()).toMatch(/DİĞER AJANLAR[\s\S]*general-purpose[\s\S]*SPFx mobile speed fixes 1-8/)
+  expect(await svg()).toMatch(/general-purpose[\s\S]*SPFx mobile speed fixes 1-8/)
+  expect(await svg()).toMatch(/ekip dışı/)
   await $.tool.call({ tool: 'Read', file_path: 'src/app.ts', agentId: 'g1' } as never)
   await saat.advance(2600)                                           // canlı sayaç paneli yeniden çizer
-  expect(await svg()).toMatch(/Read src\/app\.ts/)
+  expect(await svg()).toMatch(/Dosya okuyor · src\/app\.ts/)
   await $.tool.call({ tool: 'Bash', command: 'npm run build', agentId: 'g1' } as never)
   await saat.advance(2600)
-  expect(await svg()).toMatch(/Bash npm run build/)                   // ikinci adım da yansır
+  expect(await svg()).toMatch(/Derliyor/)                             // ikinci adım da yansır
   await $.turn.complete({ agentId: 'g1', answer: 'ÖZET: bitti', durationMs: 9000, isAborted: false, turnId: 't', reason: 'answer' } as never)
   await saat.advance(2600)
-  expect(await svg()).not.toMatch(/DİĞER AJANLAR/)                    // biten ajan çalışanlardan düşer
+  expect(await svg()).not.toMatch(/ekip dışı/)                        // biten ajan çalışanlardan düşer
   await ui.unmount()
 })
 
@@ -503,7 +503,7 @@ test('eşzamanlı başlayan üç ajan birbirinin kaydını ezmez (hepsi çalış
   const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
     props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
   const svg = JSON.stringify(await ui.find({ type: 'Svg' } as never))
-  expect(svg).toMatch(/>3<\/tspan> <tspan class=.{1,3}mut.{1,3}>ÇALIŞIYOR/)         // üçü de listede: kayıp güncelleme yok
+  expect(svg).toMatch(/3 çalışıyor/)                                  // üçü de listede: kayıp güncelleme yok
   await ui.unmount()
 })
 
@@ -518,11 +518,12 @@ test('şema: çalışan → hata → biten → bekleyen sıralaması, bekleyenle
   expect(v.kademeler[0].uyeler.map((u: any) => [u.ad, u.durum])).toEqual([['arayuz-gelistirici', 'calisiyor'], ['firmware-analist', 'bitti'], ['kod-inceleyici', 'bekliyor']])
   expect(v.sayim).toEqual({ calisiyor: 1, bitti: 1, hata: 0, bekliyor: 1 })
   const svg = semaSvg(v)
-  const sira = ['arayuz-gelistirici', 'firmware-analist', 'kod-inceleyici'].map(a => svg.indexOf(`>${a}<`))
-  expect(sira[0]).toBeGreaterThan(0)
-  expect(sira[0]).toBeLessThan(sira[1])                                             // çalışan önce
-  expect(sira[1]).toBeLessThan(sira[2])                                             // biten, bekleyenden önce
-  expect(svg).toMatch(/>1<\/tspan> <tspan class="mut">ÇALIŞIYOR[\s\S]*>1<\/tspan> <tspan class="mut">BİTTİ[\s\S]*>1<\/tspan> <tspan class="mut">BEKLİYOR/)
+  const a = svg.indexOf('>arayuz-gelistirici <'), f = svg.indexOf('>firmware-analist <'), b = svg.indexOf('Beklemede (1)')
+  expect(a).toBeGreaterThan(0)
+  expect(a).toBeLessThan(f)                                                         // çalışan önce
+  expect(f).toBeLessThan(b)                                                         // biten, bekleyenden önce
+  expect(svg).toMatch(/Beklemede \(1\): kod-inceleyici/)                             // bekleyen tek satırda
+  expect(svg).toMatch(/1 çalışıyor[\s\S]*1 tamamlandı[\s\S]*1 beklemede/)
   const bos = semaSvg(semaVerisi(ekip, [], { now }))
   expect(Number(/height="(\d+)"/.exec(bos)![1])).toBeLessThan(Number(/height="(\d+)"/.exec(svg)![1]))   // hepsi bekliyorken şema kısa
 })
@@ -553,6 +554,20 @@ test('dinamik ikon: bitti/hata, çalışırken o anki araç, yoksa rol; şemada 
   const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'kod-inceleyici'] }
   const k: any[] = [{ id: 'a', tip: 'ekip:kod-inceleyici', model: 'claude-opus-5-5', durum: 'calisiyor', baslangic: 1_000_000, aciklama: 'incele' }]
   const svg = semaSvg(semaVerisi(ekip, k, { now: 1_030_000 }))
-  expect(svg).toMatch(/class="sacc" stroke-width="1\.3"[^>]*><path d="M5 2a3 3 0 1 0/)   // rol ikonu (büyüteç) çizildi, tek renkli çizgi
+  expect(svg).toMatch(/class="sacc" stroke-width="1\.35"[^>]*><path d="M5 2a3 3 0 1 0/)   // rol ikonu (büyüteç) çizildi, tek renkli çizgi
   expect(svg).not.toMatch(/<script|on[a-z]+=/i)
+})
+
+test('okunur Türkçe adım cümlesi: araç çağrısı düz cümleye döner', () => {
+  expect(adimCumlesi('Read src/app.ts')).toBe('Dosya okuyor · src/app.ts')
+  expect(adimCumlesi('Read C:\\a\\b\\ekip.mjs')).toBe('Dosya okuyor · b/ekip.mjs')
+  expect(adimCumlesi('Grep baglanti backend/')).toBe('Arıyor · baglanti backend')
+  expect(adimCumlesi('Edit ekip.mjs')).toBe('Düzenliyor · ekip.mjs')
+  expect(adimCumlesi('Bash pytest -q')).toBe('Test çalıştırıyor')
+  expect(adimCumlesi('Bash npm run build')).toBe('Derliyor')
+  expect(adimCumlesi('Bash git status')).toBe('Git · status')
+  expect(adimCumlesi('Bash ls -la')).toBe('Komut çalıştırıyor · ls -la')
+  expect(adimCumlesi('WebFetch platform.claude.com/docs')).toBe('Sayfa okuyor · platform.claude.com/docs')
+  expect(adimCumlesi('Agent iş')).toBe('Alt ajan çağırıyor · iş')
+  expect(adimCumlesi('tur 1 başladı')).toBe('tur 1 başladı')                      // araç değilse olduğu gibi
 })

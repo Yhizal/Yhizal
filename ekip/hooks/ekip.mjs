@@ -1,6 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
-import { panoSvg, yuzde5, sureKisa } from "./pano.mjs";
+import { sadeSvg, yuzde5, sureKisa } from "./sade.mjs";
 import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -1306,7 +1306,7 @@ export function register(on) {
     const sema = semaVar ? (() => {
       const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: panoSvg(v), alt }); // düz resim: animasyon yok, kırpışma yok
+      return Svg({ key: "sema", source: sadeSvg(v), alt }); // düz resim: animasyon yok, kırpışma yok
     })() : null;
     const agac = () => {
       const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);
