@@ -86,9 +86,11 @@ export function adimCumlesi(simdi) {
 }
 
 const DURUM_RENK = { calisiyor: ["tacc", "sacc", "acc"], bitti: ["tok", "sok", "ok"], hata: ["terr", "serr", "err"], iptal: ["tgri", "smut", "mut"], bekliyor: ["tgri", "smut", "mut"] };
-const ikonDaire = (cx, cy, key, durum, r = 16) => {
+const ikonDaire = (cx, cy, key, durum, r = 16, nabiz = false) => {
   const [tint, strk] = DURUM_RENK[durum] ?? DURUM_RENK.bekliyor;
-  return `<circle cx="${cx}" cy="${cy}" r="${r}" class="${tint}"/>
+  // Çalışan işte yumuşak bir halka dışa doğru yayılıp söner (animasyon yalnız çalışırken; hepsi bitince durur).
+  const halo = nabiz ? `<circle cx="${cx}" cy="${cy}" r="${r}" class="tacc"><animate attributeName="r" values="${r};${r + 7}" dur="1.8s" repeatCount="indefinite"/><animate attributeName="opacity" values=".9;0" dur="1.8s" repeatCount="indefinite"/></circle>` : "";
+  return `${halo}<circle cx="${cx}" cy="${cy}" r="${r}" class="${tint}"/>
     <g transform="translate(${cx - 6.9} ${cy - 6.9}) scale(1.15)" fill="none" class="${strk}" stroke-width="1.35" stroke-linecap="round" stroke-linejoin="round"><path d="${GLIF[key] ?? GLIF.nokta}"/></g>`;
 };
 
@@ -108,12 +110,13 @@ const kisaModel = ad => String(ad ?? "").split(" ")[0];
  *      diger:[{ad,gorev,simdi,sure}], digerFazla, akis:[{z,uye,metin}] }
  */
 export function sadeSvg(m) {
+  const anim = m.anim !== false;
   // ── Ajan listesi: çalışan → hata → biten; bekleyenler tek satırda toplanır ──
   const uyeler = m.kademeler.flatMap(kd => kd.uyeler.map(u => ({ ...u, model: kisaModel(kd.modelAd) })));
   const SIRA = { calisiyor: 0, hata: 1, iptal: 1, bitti: 2 };
   const satirlar = [
     ...uyeler.filter(u => u.durum !== "bekliyor"),
-    ...(m.diger ?? []).slice(0, 4).map(d => ({ ad: d.ad, durum: "calisiyor", yuzde: 0, sure: d.sure, gorev: d.gorev, simdi: d.simdi, model: "ekip dışı", dis: true })),
+    ...(m.diger ?? []).slice(0, 5).map(d => ({ ad: d.ad, durum: d.durum ?? "calisiyor", yuzde: 0, sure: d.sure, gorev: d.gorev, simdi: d.simdi, ozet: d.ozet, model: "ekip dışı", dis: true })),
   ].sort((a, b) => (SIRA[a.durum] ?? 3) - (SIRA[b.durum] ?? 3));
   const bekleyen = uyeler.filter(u => u.durum === "bekliyor").map(u => u.ad);
   const akis = (m.akis ?? []).slice(0, 6);
@@ -134,17 +137,29 @@ export function sadeSvg(m) {
     <text x="${SW - PAD}" y="${PAD + 18}" text-anchor="end" font-size="12.5" font-weight="600" class="ink">${k(turYazi)}</text>
     <text x="${SW - PAD}" y="${PAD + 38}" text-anchor="end" font-size="12" class="mut">${butce ? `<tspan class="${butceSinif}">Bütçe ${k(butce)}</tspan>` : ""}${skYazi ? `<tspan>${butce ? "  ·  " : ""}${k(skYazi)}</tspan>` : ""}</text>`;
 
-  // ── Danışman: tek yumuşak şerit ──
-  const dy = PAD + 54, dh = 58;
+  // ── Danışman: yumuşak şerit; çalışırken odağı, her zaman son ara rapor ──
+  const dy = PAD + 54;
   const mesgul = m.danisman.mesgul;
   const brifSay = (m.brifler ?? []).length;
-  const danCumle = mesgul ? (m.danisman.odak || m.danisman.durum) : brifSay ? `Hazır · bu işte ${brifSay} brif verdi` : "Hazır · işleri yönlendirmek için bekliyor";
+  const sarma = (t, n, maks) => {
+    const satir = []; let l = "";
+    for (const w of String(t ?? "").split(/\s+/)) { if ((l + " " + w).trim().length > n && l) { satir.push(l); l = w; } else l = (l + " " + w).trim(); }
+    if (l) satir.push(l);
+    const kesik = satir.length > maks;
+    return satir.slice(0, maks).map((x, i) => (kesik && i === maks - 1 ? kisalt(`${x} …`, n) : x));
+  };
+  const dSatir = [];
+  if (mesgul) dSatir.push({ t: kisalt(m.danisman.odak || m.danisman.durum, 76), c: "ink" });
+  if (m.danisman.rapor) for (const t of sarma(`Ara rapor · ${m.danisman.raporZ} — ${m.danisman.rapor}`, 78, mesgul ? 2 : 3)) dSatir.push({ t, c: mesgul ? "mut" : "ink" });
+  if (!dSatir.length) dSatir.push({ t: brifSay ? `Hazır · bu işte ${brifSay} brif verdi` : "Hazır · işleri yönlendirmek için bekliyor", c: "mut" });
+  const dh = 36 + dSatir.length * 19;
+  const noktalar = mesgul && anim ? [0, 1, 2].map(i => `<circle cx="${SW - PAD - 38 + i * 10}" cy="${dy + 36}" r="2.5" class="acc"><animate attributeName="opacity" values=".2;1;.2" dur="1.2s" begin="${i * 0.2}s" repeatCount="indefinite"/></circle>`).join("") : "";
   const danisman = `<g><title>Danışman: ${k(m.danisman.durum)}</title>
     <rect x="${PAD}" y="${dy}" width="${SW - 2 * PAD}" height="${dh}" rx="12" class="tdan"/>
-    ${ikonDaire(PAD + 26, dy + dh / 2, "yildiz", mesgul ? "calisiyor" : "bitti", 17)}
+    ${ikonDaire(PAD + 26, dy + 29, "yildiz", mesgul ? "calisiyor" : "bitti", 17, anim && mesgul)}
     <text x="${PAD + 54}" y="${dy + 24}" font-size="13.5" font-weight="650" class="ink">Danışman <tspan class="mut" font-weight="400" font-size="12">· ${k(m.danisman.model)}</tspan></text>
-    <text x="${PAD + 54}" y="${dy + 43}" font-size="12.5" class="${mesgul ? "ink" : "mut"}">${k(kisalt(danCumle, 70))}</text>
-    <text x="${SW - PAD - 14}" y="${dy + 34}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : "Hazır"}</text></g>`;
+    ${dSatir.map((l, i) => `<text x="${PAD + 54}" y="${dy + 43 + i * 19}" font-size="12.5" class="${l.c}">${k(l.t)}</text>`).join("")}
+    <text x="${SW - PAD - 14}" y="${dy + 24}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : "Hazır"}</text>${noktalar}</g>`;
 
   // ── Ajanlar ──
   let y = dy + dh + 26;
@@ -158,9 +173,13 @@ export function sadeSvg(m) {
       : bitti ? (u.ozet || "Tamamlandı") : u.durum === "hata" ? "Hata ile sona erdi" : "İptal edildi";
     const durumYazi = calisiyor ? (u.dis ? u.sure : `%${u.yuzde} · ${u.sure}`) : bitti ? `Tamamlandı · ${u.sure}` : hata ? (u.durum === "hata" ? "Hata" : "İptal") : "";
     const durumSinif = calisiyor ? "acc" : bitti ? "ok" : hata && u.durum === "hata" ? "err" : "mut";
-    const cubuk = calisiyor && !u.dis ? `<rect x="${SW - PAD - 80}" y="${cy + 8}" width="80" height="4" rx="2" class="trk"/><rect x="${SW - PAD - 80}" y="${cy + 8}" width="${Math.max(4, Math.round(80 * u.yuzde / 100))}" height="4" rx="2" class="acc"/>` : "";
+    const bx = SW - PAD - 80, dolu = Math.max(4, Math.round(80 * u.yuzde / 100));
+    // Çalışırken: ilerleme çubuğunda kayan ışık; yüzdesi bilinmeyen (ekip dışı) işte gidip gelen belirsiz çubuk.
+    const cubuk = !calisiyor ? "" : u.dis
+      ? `<rect x="${bx}" y="${cy + 8}" width="80" height="4" rx="2" class="trk"/>${anim ? `<rect x="${bx}" y="${cy + 8}" width="28" height="4" rx="2" class="acc"><animate attributeName="x" values="${bx};${bx + 52};${bx}" dur="1.8s" repeatCount="indefinite"/></rect>` : ""}`
+      : `<rect x="${bx}" y="${cy + 8}" width="80" height="4" rx="2" class="trk"/><rect x="${bx}" y="${cy + 8}" width="${dolu}" height="4" rx="2" class="acc"/>${anim && dolu > 30 ? `<rect x="${bx}" y="${cy + 8}" width="22" height="4" rx="2" fill="#FFFFFF" fill-opacity=".55"><animate attributeName="x" values="${bx};${bx + dolu - 22};${bx}" dur="1.6s" repeatCount="indefinite"/></rect>` : ""}`;
     govde += `<g><title>${k(`${u.ad}: ${u.gorev || ""}`)}</title>
-      ${ikonDaire(PAD + 18, cy, ikon, u.durum)}
+      ${ikonDaire(PAD + 18, cy, ikon, u.durum, 16, anim && calisiyor)}
       <text x="${PAD + 46}" y="${cy - 3}" font-size="13.5" font-weight="650" class="ink">${k(kisalt(u.ad, 24))} <tspan class="mut" font-weight="400" font-size="12">${k(u.model ?? "")}</tspan></text>
       <text x="${PAD + 46}" y="${cy + 15}" font-size="12.5" class="${calisiyor ? "ink" : "mut"}">${k(kisalt(cumle, bitti ? 66 : 50))}</text>
       <text x="${SW - PAD}" y="${cy - 3}" text-anchor="end" font-size="12.5" font-weight="600" class="${durumSinif}">${k(durumYazi)}</text>${cubuk}

@@ -456,6 +456,33 @@ const butceSatiri = b => `Kota: ${b.ozet}. Bütçe: ${b.seviye.toLocaleUpperCase
 // Bütçenin Opus'tan Sonnet'e indirdiği üyenin kademe talimatı da değişir.
 const indir = u => (u.inen ? { ...u, prompt: u.prompt.replace(KADEME_EK[UZMAN_MODEL], KADEME_EK[HIZLI_MODEL]) } : u);
 
+// ── Ara rapor: danışman her iş bitişinde 1-2 cümlelik kısa bir gidişat raporu yazar (kritik bütçede yedek cümle) ──
+const ARA_SISTEM = `Sen ekip danışmanısın (Fable). Bir ajan işini bitirdi. Kullanıcıya 1-2 cümlelik KISA bir ara rapor yaz: ne bitti, bulgu ne, geride ne kaldı ya da sıradaki adım ne. Düz Türkçe, süssüz, tablo ve liste yok, en fazla 200 karakter. ${KULLANICI}`;
+export const yedekRapor = (ad, kosu, suren) =>
+  `${ad} ${kosu.durum === "bitti" ? "tamamlandı" : kosu.durum}${kosu.ozet ? `: ${kosu.ozet}` : ""}. ${suren.length ? `Süren: ${suren.slice(0, 4).join(", ")}.` : "Çalışan ajan kalmadı."}`;
+async function araRapor($, kosu, ad) {
+  if (araMesgul) { araBekleyen = { kosu, ad }; return; }
+  araMesgul = true;
+  try {
+    const { value: k = [] } = await $.state.get(KOSULAR);
+    const suren = k.filter(x => x.durum === "calisiyor" && x.id !== kosu.id).map(x => x.tip.replace(new RegExp(`^${P}:`), ""));
+    let metin = yedekRapor(ad, kosu, suren);
+    const b = await butceAl($);
+    if (b.seviye !== "kritik" && kosu.durum === "bitti") {
+      const r = await fable($, { system: ARA_SISTEM, maxTokens: 220, timeoutMs: 60_000,
+        prompt: `Biten ajan: ${ad} (${kademe(kosu.model)}), süre ${sure(kosu.bitis - kosu.baslangic)}, görev: ${tek(kosu.aciklama, 120)}\nÇıktı:\n${tek(kosu.cikti, 900)}\n\nSüren ajanlar: ${suren.join(", ") || "yok"}. Kuyrukta bekleyen: ${bekleyenIsler.length}.` });
+      if (r.isAnswered && r.text.trim()) metin = tek(r.text.trim(), 220);
+    }
+    araRaporEkle(metin);
+    akisEkle("danisman", `ara rapor: ${tek(metin, 80)}`, "danışman");
+    await $.state.set(FRAME, ((await $.state.get(FRAME)).value ?? 0) + 1); // paneli yeniden çizdir
+  } finally {
+    araMesgul = false;
+    const siradaki = araBekleyen; araBekleyen = null;
+    if (siradaki) void araRapor($, siradaki.kosu, siradaki.ad).catch(() => {});
+  }
+}
+
 // ── Dinamik model stratejisi (§8): siteden model profili + proje içeriği → danışmanın proje başına stratejisi ──
 const GUN = 86_400_000;
 async function modelProfili($) {
@@ -872,6 +899,7 @@ async function elleSonKontrol($) {
 
 async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
   const kosu = { id, tip, aciklama: tek(aciklama, 140), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}), ...(beklenenDk ? { beklenenDk } : {}) };
+  akisEkle(tip.replace(new RegExp(`^${P}:`), ""), `başladı — ${tek(aciklama, 60)}`, kademe(model));
   canliIs.set(id, kosu.baslangic); // sayaç bunu await'siz görür: sayaç iptali ile yeni iş arasında yarış kalmaz
   await kosularGuncelle($, k => (k.some(x => x.id === id) ? null : [...k, kosu].slice(-MAX_KOSU)));
   cark($);
@@ -894,7 +922,24 @@ export async function baslat($, uye, gorev, tur, o = {}) {
 // ── Canlı akış: kim ne yapıyor. Modül değişkeni (state değil): her araç çağrısı paneli yeniden çizdirmesin;
 // panel akışı 3 sn'lik canlı sayaçla (cark) okur. ──
 const akis = [];
-let panelAcik = false;        // panel hiç açılmadıysa sayaç boşuna çizdirmesin
+let panelAcik = false;
+const araRaporlar = [];       // danışmanın ara raporları, en yenisi başta: { z, metin }
+let araMesgul = false;
+let araBekleyen = null;
+let sonSvg = { s: "", t: 0 };
+/** Animasyonlu çerçeve her yeni kaynakta yeniden yüklenir (kırpışma). Çalışırken en fazla 4 sn'de bir değiştir;
+ *  iş bitince (son = true) son durum hemen gösterilir ve panel yerinde durur. */
+export function kaynakSec(s, son = false) {
+  const now = Date.now();
+  if (s === sonSvg.s) return s;
+  if (animAcik && !son && sonSvg.s && now - sonSvg.t < 4000) return sonSvg.s;
+  sonSvg = { s, t: now };
+  return s;
+}
+const araRaporEkle = metin => {
+  araRaporlar.unshift({ z: hhmmss(Date.now()), metin: String(metin).replace(/\s+/g, " ").trim().slice(0, 240) });
+  if (araRaporlar.length > 5) araRaporlar.length = 5;
+};
 const canliIs = new Map();    // koşu kimliği → başlangıç; sayaç kararı eşzamanlı (await'siz) okunur
 const TAKILI_MS = 45 * 60_000; // bu kadar süredir 'çalışıyor' kalan koşu takılı sayılır
 let kosuSira = Promise.resolve();
@@ -911,7 +956,7 @@ function kosularGuncelle($, fn) {
 }
 const sonEylem = new Map(); // üye → şu anki araç çağrısı
 let danOdak = "";           // danışmanın şu an ilgilendiği şey
-let animAcik = false; // varsayılan KAPALI: çerçeveli (SMIL) çizim her tazelemede yeniden yüklenip kırpışıyordu
+let animAcik = true;  // sade ama animatif: hareket yalnız çalışan işlerde; hepsi bitince durur. /ekip animasyon kapat ile kapanır
 const hhmmss = t => new Date(t).toLocaleTimeString("tr-TR", { hour12: false });
 export function akisEkle(uye, metin, kdm) {
   akis.unshift({ t: Date.now(), z: hhmmss(Date.now()), uye, metin: tek(metin, 90), kademe: kdm });
@@ -957,9 +1002,11 @@ export function semaVerisi(ekip, kosular, o = {}) {
   });
   const SIRA = { calisiyor: 0, hata: 1, iptal: 1, bitti: 2, bekliyor: 3 };
   for (const kd of kademeler) kd.uyeler.sort((a, b) => (SIRA[a.durum] ?? 3) - (SIRA[b.durum] ?? 3)); // çalışan → hata → biten → bekleyen
-  const digerHam = kosular.filter(x => x.durum === "calisiyor" && now - x.baslangic < TAKILI_MS && x.tip !== `${P}:model-izci`
-    && !(x.tip.startsWith(`${P}:`) && ekip.uyeler.includes(x.tip.slice(P.length + 1))));
-  const sayim = { calisiyor: digerHam.length, bitti: 0, hata: 0, bekliyor: 0 };
+  // Ekip dışı ajanlar: çalışanlar ve son 30 dakikada bitenler (iş bitince yerinde durur, listeden kaybolmaz)
+  const digerHam = kosular.filter(x => x.tip !== `${P}:model-izci` && !(x.tip.startsWith(`${P}:`) && ekip.uyeler.includes(x.tip.slice(P.length + 1)))
+    && (x.durum === "calisiyor" ? now - x.baslangic < TAKILI_MS : now - (x.bitis ?? now) < 30 * 60_000));
+  const sayim = { calisiyor: 0, bitti: 0, hata: 0, bekliyor: 0 };
+  for (const x of digerHam) sayim[x.durum === "iptal" ? "hata" : x.durum] += 1;
   for (const kd of kademeler) for (const u of kd.uyeler) sayim[u.durum === "iptal" ? "hata" : u.durum] = (sayim[u.durum === "iptal" ? "hata" : u.durum] ?? 0) + 1;
   const t = o.tur;
   const maxTur = t ? Math.min(MAX_TUR, BUTCE_AYAR[t.butce ?? "normal"]?.maxTur ?? MAX_TUR) : MAX_TUR;
@@ -979,13 +1026,15 @@ export function semaVerisi(ekip, kosular, o = {}) {
     danisman: { model: fm ? modelAdi(fm.id) : "Fable", mesgul,
       durum: !mesgul ? "hazır" : sk?.durum === "bekliyor" ? "son kontrol" : o.taslak?.durum === "hazirlaniyor" ? "plan yazıyor" : "düşünüyor",
       is: o.dan?.soru ?? (t ? "" : "görev bekliyor"), odak: mesgul ? danOdak : "",
-      olaylar: akis.filter(a => a.uye === "danisman" && a.t).map(a => ({ t: a.t, metin: a.metin })) },
+      olaylar: akis.filter(a => a.uye === "danisman" && a.t).map(a => ({ t: a.t, metin: a.metin })),
+      rapor: araRaporlar[0]?.metin ?? "", raporZ: araRaporlar[0]?.z ?? "" },
     kademeler, anim: o.anim !== false,
     akis: akis.slice(0, 8),
     // Ekip üyesi olmayan çalışan ajanlar (ana oturumun başlattıkları): görev + şu anki adım
     sayim, digerFazla: Math.max(0, digerHam.length - 4),
     diger: digerHam
-      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: sonEylem.get(x.id) ?? "", sure: sureKisa(now - x.baslangic, false), b: x.baslangic })),
+      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: x.durum === "calisiyor" ? sonEylem.get(x.id) ?? "" : "", durum: x.durum, ozet: x.ozet ?? "",
+        sure: sureKisa((x.bitis ?? now) - x.baslangic, x.durum !== "calisiyor"), b: x.baslangic })),
     // Zaman çizelgesi (pano): pencerenin başlangıcı = son bir saatteki en erken olay
     zaman: { now, bas: enErken < now ? enErken : undefined },
     brifler: (o.brifler ?? []).map(b => ({ t: b.zaman, uye: b.uye })),
@@ -1002,7 +1051,7 @@ export function register(on) {
     anim = null;
     canli.clear();
     sonKontrolZamani = Date.now(); // yeniden yüklemede eski işler yeniden kontrol edilmesin
-    try { animAcik = (await $.store.get("animasyon")) === true; } catch {}
+    try { animAcik = (await $.store.get("animasyon")) !== false; } catch {}
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
@@ -1046,7 +1095,7 @@ export function register(on) {
       animAcik = !/kapat|kapal[ıi]|off/i.test(args);
       await $.store.set("animasyon", animAcik);
       await $.state.set(FRAME, ((await $.state.get(FRAME)).value ?? 0) + 1);
-      return { text: "Pano artık animasyonsuz bir mühendislik şematiği (çubuklar uzar, günlük akar); bu ayar kullanılmıyor." };
+      return { text: `Panel animasyonu ${animAcik ? "AÇIK (yalnız çalışan işlerde hareket eder)" : "KAPALI (düz resim)"}` };
     }
     if (/^denetle\b/i.test(args)) {
       await $.state.set(DANISMAN, { soru: "Bütün denetimi", durum: "bekliyor" });
@@ -1111,6 +1160,7 @@ export function register(on) {
     $.ui.toast(`${durum === "bitti" ? "✔" : "✖"} ${ad} ${durum} (${sure(kosu.bitis - kosu.baslangic)})`);
     akisEkle(ad, `${durum === "bitti" ? "tamamladı" : durum}${kosu.ozet ? ` — ${kosu.ozet}` : ""} (${sure(kosu.bitis - kosu.baslangic)})`, kademe(kosu.model));
     sonEylem.delete(kosu.id);
+    if (kosu.tip !== `${P}:model-izci` && kosu.tip !== `${P}:danisman`) void araRapor($, kosu, ad).catch(() => {});
     const { value: inc = null } = await $.state.get(INCELEME);
     if (inc === e.agentId) {
       await $.state.set(DANISMAN, { soru: "Ekip çıktılarını incele", cevap: kosu.cikti, durum: durum === "bitti" ? "bitti" : "hata" });
@@ -1306,7 +1356,7 @@ export function register(on) {
     const sema = semaVar ? (() => {
       const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: sadeSvg(v), alt }); // düz resim: animasyon yok, kırpışma yok
+      return Svg({ key: "sema", source: kaynakSec(sadeSvg(v), v.sayim.calisiyor === 0 && !v.danisman.mesgul), alt, isInteractive: animAcik });
     })() : null;
     const agac = () => {
       const gruplar = kademeGruplari(ekip, kosular).filter(g => g.uyeler.length);

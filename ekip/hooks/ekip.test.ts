@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -200,7 +200,7 @@ test('hex renk (Clawd turuncusu) motor tarafından kabul edilir', { plugins: [{ 
   await ui.unmount()
 })
 
-test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şeması; saat ilerleyince blit yok', async ($, on) => {
+test('sade mod: terminalde ağaç, uygulamada tek animatif şema (yalnız çalışan işte hareket); saat ilerleyince blit yok', async ($, on) => {
   const saat = mock.clock(on); mock.store(on, {})
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
@@ -226,8 +226,8 @@ test('sade mod: animasyon yok; terminalde ağaç, uygulamada tek statik ekip şe
       expect(svgler).toHaveLength(1)                                              // tek şema, üye başına şerit yok
       const s = JSON.stringify(svgler[0])
       expect(s).toMatch(/Uzman \(Opus 5\.5\): [^;]*test-yazici calisiyor/)          // erişilebilir metin; ajan Opus ile başladı → Uzman sütunu
-      expect(s).not.toMatch(/isInteractive.?.?:.?true/)                           // düz resim, çerçeve yok (kırpışmaz)
-      expect(s).not.toMatch(/<animate/)                                            // animasyon yok
+      expect(s).toMatch(/isInteractive.?.?:.?true/)                               // animasyon için çerçeve
+      expect(s).toMatch(/<animate/)                                                // çalışan ajan var: hareket var
       expect(s).toMatch(/Ajanlar|test-yazici/)                                     // ajan listesi yazıyla görünür
     }
     await ui.unmount()
@@ -401,7 +401,7 @@ test('ekip şeması: kademeler (ast-üst), üye kartları, rozetler; yüzde 5 ve
   expect(svg).toMatch(/Danışman/)
   expect(svg).toMatch(/Danışman[\s\S]*Fable 5\.1[\s\S]*Ajanlar/)                    // danışman en üstte, altında ajanlar
   expect(svg).not.toMatch(/<script|on[a-z]+=/i)                                    // betik ve olay özniteliği yok
-  expect(svg).not.toMatch(/<animate/)                                              // animasyon yok
+  expect(svg).toMatch(/<animate/)                                                  // çalışan test-yazici var: hareket var
   expect(svg).toMatch(/class="acc"[^>]*\/>/)                                       // çalışan üyenin çubuğu vurgu renginde
   expect(semaSvg(semaVerisi(ekip, k, { now: now + 21_000 }))).toBe(semaSvg(semaVerisi(ekip, k, { now: now + 24_000 })))  // 5 sn'de değişmez
 })
@@ -470,8 +470,10 @@ test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla pa
   on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
   on('agent.spawn', () => ({ model: 'claude-opus-5-5', agentId: 'g1' }) as never)
   on('tool.call', () => ({ result: 'ok' }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('turn.complete', () => ({ text: '' }) as never)
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'animasyon kapat', origin: 'user' } as never)   // kırpışma freni gerçek saati kullanır; bu test sayaca bakar
   await $.agent.spawn({ prompt: 'SPFx mobile speed fixes 1-8', subagentType: 'general-purpose' } as never)
   const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
     props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
@@ -486,7 +488,8 @@ test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla pa
   expect(await svg()).toMatch(/Derliyor/)                             // ikinci adım da yansır
   await $.turn.complete({ agentId: 'g1', answer: 'ÖZET: bitti', durationMs: 9000, isAborted: false, turnId: 't', reason: 'answer' } as never)
   await saat.advance(2600)
-  expect(await svg()).not.toMatch(/ekip dışı/)                        // biten ajan çalışanlardan düşer
+  expect(await svg()).toMatch(/ekip dışı[\s\S]*Tamamlandı/)                // biten ajan yerinde kalır, tamamlandı görünür
+  expect(await svg()).not.toMatch(/<animate/)                         // hiçbiri çalışmıyor: hareket durur
   await ui.unmount()
 })
 
@@ -570,4 +573,54 @@ test('okunur Türkçe adım cümlesi: araç çağrısı düz cümleye döner', (
   expect(adimCumlesi('WebFetch platform.claude.com/docs')).toBe('Sayfa okuyor · platform.claude.com/docs')
   expect(adimCumlesi('Agent iş')).toBe('Alt ajan çağırıyor · iş')
   expect(adimCumlesi('tur 1 başladı')).toBe('tur 1 başladı')                      // araç değilse olduğu gibi
+})
+
+test('kırpışma freni: çalışırken çizim 4 sn içinde değişmez, iş bitince son durum hemen gelir', () => {
+  expect(kaynakSec('<svg>A</svg>', true)).toBe('<svg>A</svg>')            // sıfırla
+  expect(kaynakSec('<svg>B</svg>')).toBe('<svg>A</svg>')                  // 4 sn içinde eski çizim
+  expect(kaynakSec('<svg>A</svg>')).toBe('<svg>A</svg>')                  // aynı kaynak zaten aynı
+  expect(kaynakSec('<svg>B</svg>', true)).toBe('<svg>B</svg>')            // son durum frenlenmez
+})
+
+test('iş bitince yerinde durur: biten ekip dışı ajan listede kalır, sayımlara girer, hareket yok', () => {
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'test-yazici'] }
+  const now = 20_000_000
+  const k: any[] = [
+    { id: 'g', tip: 'general-purpose', model: 'claude-opus-5-5', durum: 'bitti', baslangic: now - 120_000, bitis: now - 10_000, aciklama: 'SPFx hız düzeltmeleri', ozet: '8 düzeltme tamam' },
+    { id: 'e', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'bitti', baslangic: now - 90_000, bitis: now - 5_000, aciklama: 'testler', ozet: 'hepsi geçti' },
+    { id: 'eski', tip: 'general-purpose', model: 'claude-opus-5-5', durum: 'bitti', baslangic: now - 3_600_000, bitis: now - 3_000_000, aciklama: 'çok eski' },
+  ]
+  const v: any = semaVerisi(ekip, k, { now })
+  expect(v.diger.map((d: any) => [d.ad, d.durum, d.ozet])).toEqual([['general-purpose', 'bitti', '8 düzeltme tamam']])   // 30 dk'dan eski düşer
+  expect(v.sayim).toMatchObject({ calisiyor: 0, bitti: 2 })
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/general-purpose[\s\S]*Tamamlandı · 1:50/)
+  expect(svg).toMatch(/2 tamamlandı/)
+  expect(svg).not.toMatch(/<animate/)                                      // hepsi bitti: hareket durur
+})
+
+test('ara rapor: danışman her bitişte kısa rapor yazar; panelde danışman şeridinde görünür', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5', agentId: 'r1' }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => (istemler.push(String(e.system)), { value: { isAnswered: true, usage: {}, text: 'Köprü testleri tamamlandı, hepsi geçti; sıradaki adım yok.' } }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'animasyon kapat', origin: 'user' } as never)
+  await $.agent.spawn({ prompt: 'köprü testleri', subagentType: 'ekip:hizli-isci' } as never)
+  await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: testler geçti', durationMs: 9000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await new Promise(r => setTimeout(r, 80))
+  expect(istemler.some(x => /ara rapor yaz/.test(x))).toBe(true)          // danışman (Fable) çağrıldı
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'desktop', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  const svg = JSON.stringify(await ui.find({ type: 'Svg' } as never))
+  expect(svg).toMatch(/Ara rapor ·[\s\S]*Köprü testleri tamamlandı/)
+  await ui.unmount()
+  expect(yedekRapor('hizli-isci', { durum: 'bitti', ozet: 'testler geçti' } as never, ['kod-inceleyici'])).toBe('hizli-isci tamamlandı: testler geçti. Süren: kod-inceleyici.')
+  expect(yedekRapor('hizli-isci', { durum: 'hata' } as never, [])).toBe('hizli-isci hata. Çalışan ajan kalmadı.')
 })
