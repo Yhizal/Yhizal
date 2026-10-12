@@ -1,6 +1,6 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
-import { sadeSvg, yuzde5, sureKisa } from "./sade.mjs";
+import { sadeSvg, yuzde5, sureKisa, eylemOzeti } from "./sade.mjs";
 import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -405,7 +405,9 @@ function cark($) {
     const { value: tur = null } = await $.state.get(TUR);
     const { value: dan = null } = await $.state.get(DANISMAN);
     for (const [id, t0] of canliIs) if (Date.now() - t0 > TAKILI_MS) canliIs.delete(id); // takılı koşu sayacı sonsuza dek açık tutmasın
+    void turUzlastir($, tur, k).catch(() => {});
     const hareket = canliIs.size > 0 || k.some(x => x.durum === "calisiyor" && Date.now() - x.baslangic < TAKILI_MS) || taslak?.durum === "hazirlaniyor" ||
+      (tur?.durum === "calisiyor" && !uzlastirDenendi.has(tur.no)) ||
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor" || bekleyenIsler.length > 0 || kosuyorKuyruk;
     if (!hareket) { ticker?.cancel?.(); ticker = null; return; }
     // Raster şeritleri blit ile canlı; tam yeniden çizimi yalnız yazı spinner'ları için seyrek yap (~1.6 Hz).
@@ -766,6 +768,29 @@ async function turIlerle($, kosu, ad) {
   await turBitti($, kosu.tur);
 }
 
+// Takılı tur kurtarma: "Tur çalışıyor" görünüyor ama çalışan koşu yok ve son bitişten 20 sn geçti (bağımlı üye hiç başlamadı,
+// başlatma reddedildi, bir bağlantı koptu). Bekleyen görevler serbest bırakılır, hiçbiri kalmadıysa tur değerlendirmeye geçer.
+// Her tur için bir kez denenir.
+const uzlastirDenendi = new Set();
+let uzlastiriyor = false;
+async function turUzlastir($, tur, k) {
+  if (uzlastiriyor || tur?.durum !== "calisiyor" || uzlastirDenendi.has(tur.no)) return;
+  const buTur = k.filter(x => x.tur === tur.no);
+  if (!buTur.length || buTur.some(x => x.durum === "calisiyor")) return;
+  if (Date.now() - Math.max(...buTur.map(x => x.bitis ?? 0)) < 20_000) return; // yeni bitti: olağan akış sürer
+  uzlastiriyor = true;
+  try {
+    uzlastirDenendi.add(tur.no);
+    const bekleyen = tur.bekleyen ?? [];
+    if (bekleyen.length) {
+      await $.state.set(TUR, { ...tur, bekleyen: [] });
+      akisEkle("danisman", `takılı ${bekleyen.length} bekleyen görev serbest bırakıldı: ${tek(bekleyen.map(b => b.uye).join(", "), 40)}`, "danışman");
+      for (const b of bekleyen) await baslat($, b.uye, b.gorev, tur.no, { model: b.model, beklenenDk: b.beklenenDk, yogun: tur.yogun });
+    }
+    await turBitti($, tur.no);
+  } finally { uzlastiriyor = false; }
+}
+
 // Tur bitince Fable çıktıları değerlendirir ve sıradaki görevleri kendisi atar.
 async function turBitti($, no) {
   const { value: k = [] } = await $.state.get(KOSULAR);
@@ -1021,10 +1046,22 @@ let sonSvg = { s: "", t: 0 };
  *  iş bitince (son = true) son durum hemen gösterilir ve panel yerinde durur. */
 export function kaynakSec(s, son = false) {
   const now = Date.now();
+  kaynakKalanMs = 0;
   if (s === sonSvg.s) return s;
-  if (animAcik && !son && sonSvg.s && now - sonSvg.t < 4000) return sonSvg.s;
+  if (animAcik && !son && sonSvg.s && now - sonSvg.t < 4000) { kaynakKalanMs = 4000 - (now - sonSvg.t); return sonSvg.s; }
   sonSvg = { s, t: now };
   return s;
+}
+// Frenlenen çizimin ardından panel kendiliğinden bir kez daha çizilmezse (hiçbir şey değişmiyorsa sayaç da durur) ekran
+// eski kareyle takılı kalırdı: fren bitince tek bir yeniden çizim zamanlanır.
+let kaynakKalanMs = 0;
+let tazeleZamanlayici = null;
+function sonCizimiGarantile($) {
+  if (!kaynakKalanMs || tazeleZamanlayici) return;
+  tazeleZamanlayici = setTimeout(async () => {
+    tazeleZamanlayici = null;
+    try { const { value: f = 0 } = await $.state.get(FRAME); await $.state.set(FRAME, f + 1); } catch {}
+  }, kaynakKalanMs + 120);
 }
 const araRaporEkle = metin => {
   araRaporlar.unshift({ z: hhmmss(Date.now()), metin: String(metin).replace(/\s+/g, " ").trim().slice(0, 240) });
@@ -1050,6 +1087,7 @@ export let planModu = false;
 export const planModuAyarla = v => { planModu = Boolean(v); };
 const PLAN_ON = "[PLAN MODU: dosya değiştirme, komut çalıştırma — yalnız oku ve analiz et. Bulguları ve önerdiğin değişiklikleri (dosya, satır, kısa diff) raporla; ÖZET satırına ne önerdiğini yaz.] ";
 const sonEylem = new Map(); // üye → şu anki araç çağrısı
+const eylemSayac = new Map(); // koşu → { Read: 9, Grep: 2 }: bitince koşu kaydına yazılır, panelde "9 dosya okudu · 2 arama"
 let danOdak = "";           // danışmanın şu an ilgilendiği şey
 let animAcik = true;  // sade ama animatif: hareket yalnız çalışan işlerde; hepsi bitince durur. /ekip animasyon kapat ile kapanır
 const hhmmss = t => new Date(t).toLocaleTimeString("tr-TR", { hour12: false });
@@ -1078,6 +1116,16 @@ export function kademeGruplari(ekip, kosular) {
   const uyeler = ekip.uyeler.filter(u => u !== "danisman" && rolu(ekip, u));
   return KADEME_SIRA.map(([kd, etiket, alias]) => ({ kademe: kd, etiket, alias, uyeler: uyeler.filter(u => kdOf(u) === kd) }));
 }
+/** Canlı akış belleği (sıcak yeniden yükleme ya da yeni oturumda) boşken son olaylar koşu kayıtlarından türetilir:
+ *  panel "Son olaylar"ı boş göstermesin. Son bir saat, en yeni başta. */
+export function turetilmisAkis(kosular, now = Date.now()) {
+  return kosular.filter(x => x.tip !== `${P}:model-izci` && now - (x.bitis ?? x.baslangic) < 60 * 60_000).flatMap(x => {
+    const ad = x.tip.startsWith(`${P}:`) ? x.tip.slice(P.length + 1) : x.tip;
+    const ev = [{ t: x.baslangic, z: hhmmss(x.baslangic), uye: ad, metin: `başladı — ${tek(x.aciklama, 60)}` }];
+    if (x.bitis) ev.push({ t: x.bitis, z: hhmmss(x.bitis), uye: ad, metin: `${x.durum === "bitti" ? "tamamladı" : x.durum}${x.ozet ? ` — ${x.ozet}` : ""}` });
+    return ev;
+  }).sort((a, b) => b.t - a.t).slice(0, 8);
+}
 const BUTCE_RENK = { bol: "#16A34A", normal: "#0891B2", tasarruf: "#D97706", kritik: "#DC2626" };
 export function semaVerisi(ekip, kosular, o = {}) {
   const now = o.now ?? Date.now();
@@ -1091,7 +1139,7 @@ export function semaVerisi(ekip, kosular, o = {}) {
         return { ad: u, durum: k ? k.durum : "bekliyor", yuzde: k ? yuzde5(ilerleme(k, stat)) : 0,
           sure: k ? sureKisa((k.bitis ?? now) - k.baslangic, k.durum !== "calisiyor") : "",
           gorev: k?.aciklama ?? rolu(ekip, u)?.description ?? "", brif: (o.brifler ?? []).filter(b => b.uye === u).length,
-          simdi: k?.durum === "calisiyor" ? sonEylem.get(k.id) ?? "" : "", ozet: k?.ozet ?? "",
+          simdi: k?.durum === "calisiyor" ? sonEylem.get(k.id) ?? "" : "", ozet: k?.ozet ?? "", eylem: k ? eylemOzeti(k.eylemler ?? eylemSayac.get(k.id)) : "",
           aralik: kosular.filter(x => x.tip === `${P}:${u}`).map(x => ({ b: x.baslangic, e: x.bitis, durum: x.durum })) };
       }) };
   });
@@ -1124,11 +1172,11 @@ export function semaVerisi(ekip, kosular, o = {}) {
       olaylar: akis.filter(a => a.uye === "danisman" && a.t).map(a => ({ t: a.t, metin: a.metin })),
       rapor: araRaporlar[0]?.metin ?? "", raporZ: araRaporlar[0]?.z ?? "" },
     kademeler, anim: o.anim !== false,
-    akis: akis.slice(0, 8),
+    akis: (akis.length ? akis : turetilmisAkis(kosular)).slice(0, 8),
     // Ekip üyesi olmayan çalışan ajanlar (ana oturumun başlattıkları): görev + şu anki adım
     sayim, digerFazla: Math.max(0, digerHam.length - 4),
     diger: digerHam
-      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: x.durum === "calisiyor" ? sonEylem.get(x.id) ?? "" : "", durum: x.durum, ozet: x.ozet ?? "",
+      .slice(-4).map(x => ({ ad: x.tip.replace(new RegExp(`^${P}:`), ""), gorev: x.aciklama, simdi: x.durum === "calisiyor" ? sonEylem.get(x.id) ?? "" : "", durum: x.durum, ozet: x.ozet ?? "", eylem: eylemOzeti(x.eylemler ?? eylemSayac.get(x.id)),
         sure: sureKisa((x.bitis ?? now) - x.baslangic, x.durum !== "calisiyor"), b: x.baslangic })),
     // Zaman çizelgesi (pano): pencerenin başlangıcı = son bir saatteki en erken olay
     zaman: { now, bas: enErken < now ? enErken : undefined },
@@ -1248,9 +1296,10 @@ export function register(on) {
     await kosularGuncelle($, k => {
       const i = k.findIndex(x => x.id === e.agentId);
       if (i < 0) return null;
-      kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000), ozet: ozetSatiri(e.answer) };
+      kosu = { ...k[i], durum, bitis: Date.now(), cikti: String(e.answer ?? "").slice(0, 4000), ozet: ozetSatiri(e.answer), ...(eylemSayac.has(e.agentId) ? { eylemler: eylemSayac.get(e.agentId) } : {}) };
       return k.map((x, j) => (j === i ? kosu : x));
     });
+    eylemSayac.delete(e.agentId);
     if (!kosu) return r;
     if (durum === "bitti" && (kosu.adim ?? 0) > 0) {
       const { value: b = {} } = await $.state.get(ADIM_BELLEK);
@@ -1286,6 +1335,9 @@ export function register(on) {
       if (kosu?.durum === "calisiyor") {
         const uye = kosu.tip.replace(new RegExp(`^${P}:`), ""), m = eylemMetni(e);
         sonEylem.set(kosu.id, m);
+        const say = eylemSayac.get(kosu.id) ?? {};
+        say[e.tool ?? e.name ?? "araç"] = (say[e.tool ?? e.name ?? "araç"] ?? 0) + 1;
+        eylemSayac.set(kosu.id, say);
         akisEkle(uye, m, kademe(kosu.model));
       }
     }
@@ -1458,7 +1510,9 @@ export function register(on) {
     const sema = semaVar ? (() => {
       const v = semaVerisi(ekip, kosular, { dan, taslak, tur, sk, butceDurum, brifler, adimBellek, profil, anim: animAcik });
       const alt = `${ekip.ad}: ${v.tur.yazi}; danışman ${v.danisman.durum}; ` + v.kademeler.map(kd => `${kd.etiket} (${kd.modelAd}): ${kd.uyeler.map(u => `${u.ad} ${u.durum}`).join(", ") || "üye yok"}`).join("; ");
-      return Svg({ key: "sema", source: kaynakSec(sadeSvg(v), v.sayim.calisiyor === 0 && !v.danisman.mesgul), alt });
+      const kaynak = kaynakSec(sadeSvg(v), v.sayim.calisiyor === 0 && !v.danisman.mesgul);
+      sonCizimiGarantile($);
+      return Svg({ key: "sema", source: kaynak, alt });
       // isInteractive YOK: korumalı çerçeve her çizimde yeniden yüklenip ekranı kırpıştırıyordu. Düz resim olarak çizilir;
       // SMIL hareketi resmin içinde oynar (oynamazsa panel yine okunur, kırpışmaz).
     })() : null;

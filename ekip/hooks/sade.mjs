@@ -85,6 +85,18 @@ export function adimCumlesi(simdi) {
   return hedef ? `${f[1]} · ${kisalt(hedef, 36)}` : f[1];
 }
 
+/** Araç sayaçlarından okunur özet: { Read: 9, Grep: 2 } → "9 dosya okudu · 2 arama". Boşsa "". */
+const EYLEM_GRUP = [["dosya okudu", /^(Read|NotebookRead)$/i], ["arama", /^(Grep|Glob|LS)$/i], ["düzenleme", /^(Edit|Write|NotebookEdit|MultiEdit)$/i],
+  ["komut", /^Bash$/i], ["web sayfası", /^(WebFetch|WebSearch)$/i], ["alt ajan", /^(Agent|Task)$/i]];
+export function eylemOzeti(sayac) {
+  const parcalar = [];
+  for (const [etiket, re] of EYLEM_GRUP) {
+    const n = Object.entries(sayac ?? {}).filter(([t]) => re.test(t)).reduce((a, [, v]) => a + v, 0);
+    if (n) parcalar.push(`${n} ${etiket}`);
+  }
+  return parcalar.slice(0, 4).join(" · ");
+}
+
 const DURUM_RENK = { calisiyor: ["tacc", "sacc", "acc"], bitti: ["tok", "sok", "ok"], hata: ["terr", "serr", "err"], iptal: ["tgri", "smut", "mut"], bekliyor: ["tgri", "smut", "mut"] };
 const ikonDaire = (cx, cy, key, durum, r = 16, nabiz = false) => {
   const [tint, strk] = DURUM_RENK[durum] ?? DURUM_RENK.bekliyor;
@@ -125,7 +137,7 @@ export function sadeSvg(m) {
   const SIRA = { calisiyor: 0, hata: 1, iptal: 1, bitti: 2 };
   const satirlar = [
     ...uyeler.filter(u => u.durum !== "bekliyor"),
-    ...(m.diger ?? []).slice(0, 5).map(d => ({ ad: d.ad, durum: d.durum ?? "calisiyor", yuzde: 0, sure: d.sure, gorev: d.gorev, simdi: d.simdi, ozet: d.ozet, model: "ekip dışı", dis: true })),
+    ...(m.diger ?? []).slice(0, 5).map(d => ({ ad: d.ad, durum: d.durum ?? "calisiyor", yuzde: 0, sure: d.sure, gorev: d.gorev, simdi: d.simdi, ozet: d.ozet, eylem: d.eylem, model: "ekip dışı", dis: true })),
   ].sort((a, b) => (SIRA[a.durum] ?? 3) - (SIRA[b.durum] ?? 3));
   const bekleyen = uyeler.filter(u => u.durum === "bekliyor").map(u => u.ad);
   const akis = (m.akis ?? []).slice(0, 6);
@@ -174,11 +186,36 @@ export function sadeSvg(m) {
     ${dSatir.map((l, i) => `<text x="${PAD + 54}" y="${dy + 43 + i * 19}" font-size="12.5" ${i === 0 && mesgul && anim ? 'fill="url(#parilti)"' : `class="${l.c}"`}>${k(l.t)}</text>`).join("")}
     ${durumSvg}</g>`;
 
+  // ── İş akışı: danışmandan işçilere inen yaylar; çalışan işte yay boyunca akan noktalar (iş bitince durur) ──
+  let y = dy + dh + 22;
+  let akisSema = "";
+  const dugumler = [...satirlar.map(u => ({ ad: u.ad, durum: u.durum, ikon: ikonSec(u) })), ...bekleyen.map(ad => ({ ad, durum: "bekliyor", ikon: ikonSec({ ad, durum: "bekliyor" }) }))].slice(0, 6);
+  if (dugumler.length) {
+    akisSema = `<text x="${PAD}" y="${y + 4}" font-size="13" font-weight="650" class="ink">İş akışı</text>`;
+    const yay = 6 + Math.min(dugumler.length, 6) * 8, cy = y + 16 + yay + 18;
+    const x0 = PAD + 22, x1 = SW - PAD - 38, adim = dugumler.length > 1 ? (x1 - (x0 + 96)) / (dugumler.length - 1) : 0;
+    akisSema += ikonDaire(x0, cy, "yildiz", mesgul ? "calisiyor" : "bitti", 15, anim && mesgul)
+      + `<text x="${x0}" y="${cy + 31}" text-anchor="middle" font-size="11.5" class="mut">Danışman</text>`;
+    dugumler.forEach((d, i) => {
+      const cx = Math.round(dugumler.length > 1 ? x0 + 96 + i * adim : x0 + 96), yk = cy - 15 - (22 + i * 16); // yayın kontrol noktası: uzak işçi daha yüksek yay
+      const yol = `M${x0} ${cy - 15} Q${Math.round((x0 + cx) / 2)} ${yk} ${cx} ${cy - 15}`;
+      const [, strk] = DURUM_RENK[d.durum] ?? DURUM_RENK.bekliyor;
+      const cizgi = d.durum === "bekliyor" ? ' stroke-dasharray="3 4" stroke-opacity=".7"' : d.durum === "calisiyor" ? ' stroke-opacity=".55"' : ' stroke-opacity=".35"';
+      const nokta = anim && d.durum === "calisiyor"
+        ? [0, 0.9].map(b => `<circle r="3.2" class="acc"><animateMotion dur="1.8s" begin="${b}s" repeatCount="indefinite" path="${yol}"/></circle>`).join("") : "";
+      akisSema += `<path d="${yol}" fill="none" class="${strk}" stroke-width="1.6"${cizgi}/>${nokta}`
+        + ikonDaire(cx, cy, d.ikon, d.durum, 15, anim && d.durum === "calisiyor")
+        + `<text x="${cx}" y="${cy + 31}" text-anchor="middle" font-size="11.5" class="${d.durum === "bekliyor" ? "mut" : "ink"}">${k(kisalt(d.ad, 14))}</text>`;
+    });
+    y = cy + 44;
+  }
+
   // ── Ajanlar ──
-  let y = dy + dh + 26;
+  y += 14;
   let govde = `<text x="${PAD}" y="${y}" font-size="13" font-weight="650" class="ink">Ajanlar</text>`;
   y += 10;
   for (const u of satirlar) {
+    const SH = u.eylem ? SATIR + 14 : SATIR;
     const cy = y + SATIR / 2;
     const bitti = u.durum === "bitti", hata = u.durum === "hata" || u.durum === "iptal", calisiyor = u.durum === "calisiyor";
     const ikon = ikonSec(u);
@@ -196,8 +233,9 @@ export function sadeSvg(m) {
       <text x="${PAD + 46}" y="${cy - 3}" font-size="13.5" font-weight="650" class="ink">${k(kisalt(u.ad, 24))} <tspan class="mut" font-weight="400" font-size="12">${k(u.model ?? "")}</tspan></text>
       <text x="${PAD + 46}" y="${cy + 15}" font-size="12.5" ${calisiyor && anim ? 'fill="url(#parilti)"' : `class="${calisiyor ? "ink" : "mut"}"`}>${k(kisalt(cumle, bitti ? 66 : 50))}</text>
       <text x="${SW - PAD}" y="${cy - 3}" text-anchor="end" font-size="12.5" font-weight="600" class="${durumSinif}">${k(durumYazi)}</text>${calisiyor && anim ? donen(Math.round(SW - PAD - durumYazi.length * 6.9 - 13), cy - 7) : ""}${cubuk}
-      <path d="M${PAD + 46} ${y + SATIR + 0.5} H${SW - PAD}" class="ln" stroke-width="1" fill="none"/></g>`;
-    y += SATIR;
+      ${u.eylem ? `<text x="${PAD + 46}" y="${cy + 32}" font-size="11.5" class="mut">${k(kisalt(u.eylem, 70))}</text>` : ""}
+      <path d="M${PAD + 46} ${y + SH + 0.5} H${SW - PAD}" class="ln" stroke-width="1" fill="none"/></g>`;
+    y += SH;
   }
   if (!satirlar.length) { govde += `<text x="${PAD}" y="${y + 24}" font-size="12.5" class="mut">Henüz çalışan ajan yok. /ekip kur … ile ekip bir iş alınca burada görünür.</text>`; y += 40; }
   if (bekleyen.length) {
@@ -220,5 +258,5 @@ export function sadeSvg(m) {
   }
   const H = y + 14;
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${SW}" height="${H}" viewBox="0 0 ${SW} ${H}" font-family="${FONT}">${STIL}${hareketVar ? PARILTI : ""}
-    ${baslik}${danisman}${govde}${olaylar}</svg>`;
+    ${baslik}${danisman}${akisSema}${govde}${olaylar}</svg>`;
 }

@@ -1,6 +1,6 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla } from './ekip.mjs'
-import { sadeSvg as semaSvg, ikonSec, adimCumlesi } from './sade.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis } from './ekip.mjs'
+import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -778,4 +778,38 @@ test('auto mod sınıflandırıcısı ajan başlatmayı reddederse: panelde sebe
   expect(await ui.find({ type: 'Text', text: /auto modun izin denetimi.*Agent\(ekip:\*\)/ })).toBeDefined()
   expect(await ui.find({ type: 'Text', text: /Tur 1\/\d+ çalışıyor/ })).toBeUndefined()
   await ui.unmount()
+})
+
+test('eylem özeti: araç sayaçları okunur Türkçe cümleye döner', () => {
+  expect(eylemOzeti({ Read: 9, Grep: 2, Glob: 1, Edit: 1 })).toBe('9 dosya okudu · 3 arama · 1 düzenleme')
+  expect(eylemOzeti({ Bash: 4, WebFetch: 2 })).toBe('4 komut · 2 web sayfası')
+  expect(eylemOzeti({})).toBe('')
+  expect(eylemOzeti(undefined)).toBe('')
+})
+
+test('iş akışı şeması: danışmandan işçilere yaylar; çalışırken noktalar akar, hepsi bitince durur; satırda eylem özeti', () => {
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'test-yazici', 'kod-inceleyici'] }
+  const now = 40_000_000
+  const calisan: any[] = [{ id: 'a', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'calisiyor', baslangic: now - 60_000, aciklama: 'testler', eylemler: { Read: 5, Bash: 2 } }]
+  const svg = semaSvg(semaVerisi(ekip, calisan, { now }))
+  expect(svg).toContain('İş akışı')
+  expect(svg).toMatch(/<animateMotion[^>]*path="M\d+ \d+ Q/)                 // çalışan işçiye akan nokta
+  expect(svg).toMatch(/stroke-dasharray="3 4"/)                              // bekleyen (kod-inceleyici) kesikli yay
+  expect(svg).toContain('5 dosya okudu · 2 komut')
+  const bitti: any[] = [{ ...calisan[0], durum: 'bitti', bitis: now - 1000, ozet: 'tamam' }]
+  const durgun = semaSvg(semaVerisi(ekip, bitti, { now }))
+  expect(durgun).toContain('İş akışı')                                       // bitince de şema yerinde
+  expect(durgun).not.toMatch(/<animate/)                                     // ama hareket yok
+  expect(durgun).toContain('5 dosya okudu · 2 komut')                        // biten satırda yapılan işler görünür
+})
+
+test('canlı akış belleği boşken son olaylar koşu kayıtlarından türetilir', () => {
+  const now = 50_000_000
+  const k: any[] = [
+    { id: 'a', tip: 'ekip:hafif-isci', durum: 'bitti', baslangic: now - 120_000, bitis: now - 60_000, aciklama: 'hooks envanteri', ozet: '5 dosya tarandı' },
+    { id: 'i', tip: 'ekip:model-izci', durum: 'bitti', baslangic: now - 90_000, bitis: now - 80_000, aciklama: 'profil' },
+    { id: 'e', tip: 'general-purpose', durum: 'bitti', baslangic: now - 4 * 3600_000, bitis: now - 3 * 3600_000, aciklama: 'eski' },
+  ]
+  const a = turetilmisAkis(k, now)
+  expect(a.map((x: any) => [x.uye, x.metin])).toEqual([['hafif-isci', 'tamamladı — 5 dosya tarandı'], ['hafif-isci', 'başladı — hooks envanteri']])
 })
