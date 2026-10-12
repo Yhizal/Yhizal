@@ -628,7 +628,8 @@ async function kur($, hedef) {
   cark($);
   const b = await butceAl($);
   const [st, bag] = await Promise.all([stratejiHizli($), oturumBaglami($, hedef)]);
-  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
+  const planNotu = planModu ? "\n\nPLAN MODU AÇIK: kullanıcı oturumu plan modunda, ajanlar dosya değiştiremez. Her görevi salt-okur analiz olarak yaz; bitis_olcutu somut bir rapor (bulgu + önerilen değişiklik) olsun; Edit/Write/Bash verme." : "";
+  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
   let r = await fable($, { system: KUR_SISTEM, prompt: temel, maxTokens: 4500, timeoutMs: 180_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
   // Okunamayan cevap (sohbet cevabı, soru, kod bloğu, kesik JSON): bir kez, yalnız-JSON uyarısıyla yeniden sor.
@@ -673,7 +674,13 @@ async function onayla($) {
   // Bağımlı üyeler, bağlı oldukları üye bitince başlar (turn.complete).
   const bekleyen = taslak.uyeler.filter(u => u.bagimli).map(u => ({ uye: u.name, gorev: u.gorev, model: u.model, beklenenDk: u.beklenenDk, bagimli: u.bagimli }));
   await $.state.set(TUR, { no: 1, durum: "calisiyor", yogun: Boolean(taslak.yogun), bekleyen, butce: taslak.butce ?? "normal" });
-  for (const u of taslak.uyeler.filter(u => !u.bagimli)) await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun });
+  const ilkler = taslak.uyeler.filter(u => !u.bagimli), reddedilen = [];
+  for (const u of ilkler) { const r = await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun }); if (r.deny) reddedilen.push(r.deny); }
+  // Hiçbir ajan başlamadıysa (ör. plan modu spawn'ı reddederse) sessiz kalma: panelde nedeni göster.
+  if (ilkler.length && reddedilen.length === ilkler.length) {
+    await $.state.set(TASLAK, { durum: "hata", hedef: taslak.hedef, hata: `Ajanlar başlatılamadı: ${tek(reddedilen[0], 130)}${planModu ? " — plan modundasın; Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}` });
+    return;
+  }
   if (taslak.yogun) izlemeyiBaslat($);
   const sonnet = taslak.uyeler.filter(u => u.model === HIZLI_MODEL).length;
   $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı (${taslak.uyeler.length - sonnet} Opus, ${sonnet} Sonnet · bütçe ${taslak.butce ?? "normal"}${taslak.yogun ? " · yoğun iş: ara brif + tablolu rapor" : ""})`);
@@ -987,7 +994,7 @@ async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
 // $.agent.spawn kendi agent.spawn hook'umuzdan geçmez: koşuyu burada elle kaydet.
 // o.model: danışmanın bu görev için seçtiği kademe (yoksa rolün modeli); o.yogun: işçi tablolu biçimde raporlar.
 export async function baslat($, uye, gorev, tur, o = {}) {
-  const prompt = `${o.yogun ? "[YOĞUN] " : ""}${gorev}`;
+  const prompt = `${o.yogun ? "[YOĞUN] " : ""}${planModu ? PLAN_ON : ""}${gorev}`;
   // Denetmenin kademe atamaları (kademeOverride) danışmanın planındaki modelin yerine geçer.
   const ov = (await $.store.get("kademeOverride")) ?? {};
   const model = o.model ?? ov[uye];
@@ -1032,6 +1039,11 @@ function kosularGuncelle($, fn) {
   kosuSira = p.catch(() => {});
   return p;
 }
+// Plan modu: ajanlar ana oturumun iznini devralır; plan modunda dosya değiştiremez, komut çalıştıramaz. Ekip bu durumda
+// "çalışmıyor" gibi görünüyordu. Mod, plan hatırlatması (prompt.attachment) ve ana modelin ajan çağrısından (permissionMode) izlenir.
+export let planModu = false;
+export const planModuAyarla = v => { planModu = Boolean(v); };
+const PLAN_ON = "[PLAN MODU: dosya değiştirme, komut çalıştırma — yalnız oku ve analiz et. Bulguları ve önerdiğin değişiklikleri (dosya, satır, kısa diff) raporla; ÖZET satırına ne önerdiğini yaz.] ";
 const sonEylem = new Map(); // üye → şu anki araç çağrısı
 let danOdak = "";           // danışmanın şu an ilgilendiği şey
 let animAcik = true;  // sade ama animatif: hareket yalnız çalışan işlerde; hepsi bitince durur. /ekip animasyon kapat ile kapanır
@@ -1182,10 +1194,11 @@ export function register(on) {
     }
     if (args) {
       const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($), m => sekansRaporu($, m));
-      $.ui.toast(sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
-      return { text: sira
+      $.ui.toast(planModu ? "◆ Plan modundasın: ekip yalnız okuyup öneri raporlar, dosya değiştirmez" : sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
+      const planUyari = planModu ? "\n⚠ Plan modundasın: ajanlar dosya değiştiremez; ekip salt-okur analiz yapıp önerileri raporlar. Uygulatmak için Shift+Tab ile plan modundan çık ve /ekip'i yeniden çalıştır." : "";
+      return { text: (sira
         ? `İstek sıraya alındı: önünde ${sira} iş var, o bitince başlar. İlerleme panelde.`
-        : "İstek alındı; Fable konuşma bağlamını okuyup planlıyor, işçiler hemen ardından başlar. İlerleme panelde." };
+        : "İstek alındı; Fable konuşma bağlamını okuyup planlıyor, işçiler hemen ardından başlar. İlerleme panelde.") + planUyari };
     }
     // Yalnız /ekip: denetim gerekiyorsa (kuyruk doluysa ya da yeni iş bittiyse) denetmen kendiliğinden çalışır.
     if (await denetimGerekliMi($)) {
@@ -1210,7 +1223,11 @@ export function register(on) {
     return next(e);
   });
 
+  on("prompt.attachment", { type: "plan_mode" }, async ($, e, next) => { if (!e.agentId) planModu = true; return next(e); });
+  on("prompt.attachment", { type: "plan_mode_exit" }, async ($, e, next) => { if (!e.agentId) planModu = false; return next(e); });
+
   on("agent.spawn", async ($, e, next) => {
+    if (e.permissionMode) planModu = e.permissionMode === "plan";
     const r = await next(e);
     if (r.agentId) await kosuEkle($, r.agentId, e.subagentType || "genel", e.description || e.prompt, r.model);
     return r;

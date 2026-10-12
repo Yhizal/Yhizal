@@ -722,3 +722,38 @@ test('eski konuşmaya eklenen kısa hedef: plan isteği oturum bağlamını taş
   expect(kurCagri[0]).toMatch(/C:\/p\/kopru\.py/)
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:toplayici'])
 })
+
+test('plan modu: işçiler salt-okur uyarısıyla başlar, Fable bilgilenir; ajanlar reddedilirse panelde neden yazar', async ($, on) => {
+  mock.clock(on); mock.store(on, {})
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  const kurCagri: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    kurCagri.push(String(e.prompt))
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Plan Ekibi', amac: 'x', uyeler: [{ ad: 'okuyucu', model: 'sonnet', araclar: ['Read'], gorev: 'modülü oku', bitis_olcutu: 'rapor' }] }) } } as never
+  })
+  const spawned: any[] = []
+  let reddet = false
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), reddet ? { deny: 'plan modunda ajan başlatılamaz' } : { model: e.model ?? 'claude-sonnet-5-5' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'general-purpose', permissionMode: 'plan' } as never)   // ana modelin ajan çağrısı plan modunu bildirir
+  spawned.length = 0
+  try {
+    const r: any = await $.command.run({ command: 'ekip', args: 'modülü gözden geçir', origin: 'user' } as never)
+    await new Promise(x => setTimeout(x, 100))
+    expect(String(r?.value?.text ?? r?.text ?? '')).toMatch(/Plan modundasın/)
+    expect(kurCagri[0]).toMatch(/PLAN MODU AÇIK/)
+    expect(spawned[0].prompt).toMatch(/^\[PLAN MODU: dosya değiştirme/)
+    reddet = true
+    await $.command.run({ command: 'ekip', args: 'bir daha dene', origin: 'user' } as never)
+    await new Promise(x => setTimeout(x, 100))
+    const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+      props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+    expect(await ui.find({ type: 'Text', text: /Ajanlar başlatılamadı: plan modunda ajan başlatılamaz.*Shift\+Tab/ })).toBeDefined()
+    await ui.unmount()
+  } finally { await $.agent.spawn({ prompt: 'y', subagentType: 'general-purpose', permissionMode: 'default' } as never) }
+})
