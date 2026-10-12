@@ -1,7 +1,7 @@
 // Sade pano: açık, ferah, düz Türkçe cümlelerle. Her ajan tek satır: ikon, ad, ne yaptığı, ilerleme, süre.
 // Tasarım: bol boşluk, 12–17 px okunur yazı, yumuşak renkli ikon yuvarlakları, tek vurgu (mavi = çalışıyor),
 // yeşil = tamamlandı, kırmızı = hata; tablo, ızgara, monospace ve büyük harf başlık yok.
-// Düz resim, animasyon yok; yüzde 5 ve dakika adımıyla yalnız görünen bir şey değişince değişir. Açık/koyu tema.
+// Düz resim, animasyon yok; yüzde 5 ve dakika adımıyla yalnız görünen bir şey değişince değişir. Yalnız açık tema (kullanıcının Windows teması açık).
 
 export const SW = 640;
 const FONT = "'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,sans-serif";
@@ -12,12 +12,6 @@ const STIL = `<style>
   .tacc{fill:rgba(37,99,235,.11)}.tok{fill:rgba(21,128,61,.11)}.terr{fill:rgba(220,38,38,.10)}.tgri{fill:rgba(107,114,128,.12)}.tdan{fill:rgba(37,99,235,.06)}
   .sacc{stroke:#2563EB}.sok{stroke:#15803D}.serr{stroke:#DC2626}.smut{stroke:#6B7280}
   .ln{stroke:rgba(107,114,128,.22)}.trk{fill:rgba(107,114,128,.18)}
-  @media (prefers-color-scheme:dark){
-    .ink{fill:#ECEEF1}.mut{fill:#9AA1AC}.acc{fill:#6EA0FF}.ok{fill:#4ADE80}.err{fill:#F87171}.warn{fill:#FBBF24}
-    .tacc{fill:rgba(110,160,255,.16)}.tok{fill:rgba(74,222,128,.14)}.terr{fill:rgba(248,113,113,.14)}.tgri{fill:rgba(255,255,255,.08)}.tdan{fill:rgba(110,160,255,.08)}
-    .sacc{stroke:#6EA0FF}.sok{stroke:#4ADE80}.serr{stroke:#F87171}.smut{stroke:#9AA1AC}
-    .ln{stroke:rgba(255,255,255,.12)}.trk{fill:rgba(255,255,255,.14)}
-  }
 </style>`;
 
 export const k = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");

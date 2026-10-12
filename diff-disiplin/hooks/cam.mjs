@@ -1,5 +1,5 @@
 // Sade çubuklar: Claude Code uygulamasında (masaüstü, web, VS Code, mobil) ince düz çubuklar, satır başına 20px.
-// Saf fonksiyonlar; yalnız SVG metni üretir. Zemin şeffaf, renkler prefers-color-scheme ile açık/koyu temaya uyar.
+// Saf fonksiyonlar; yalnız SVG metni üretir. Zemin şeffaf, yalnız açık tema (kullanıcının Windows teması açık).
 // Resim olarak çizilir (isInteractive yok): her yeni metin resmi değiştirir, o yüzden kaynak yalnız görünen
 // değer değişince değişsin diye değerler kaba adımlara yuvarlanır.
 // kota-cubugu ve diff-disiplin aynı dosyanın birer kopyasını taşır (eklentiler birbirini içe aktaramaz);
@@ -11,18 +11,13 @@ const FONT = "'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif";
 // Sütunlar: etiket, çubuk, değer (sağa yaslı), açıklama.
 const K = { etiket: 0, cubuk: 72, cubukW: 180, deger: 292, yazi: 300 };
 
-// Çubuk rengi (iki temada aynı) ve koyu temada yazı rengi.
+// Çubuk ve yazı rengi (yalnız açık tema).
 export const TON = { yesil: "#16A34A", sari: "#D97706", kirmizi: "#DC2626", mor: "#7C3AED", mavi: "#0891B2", gri: "#71717A" };
-const YAZI_KOYU = { yesil: "#4ADE80", sari: "#FBBF24", kirmizi: "#F87171", mor: "#A78BFA", mavi: "#22D3EE", gri: "#A1A1AA" };
 
 // Tema sınıfları: lbl etiket, mut soluk yazı, trk çubuk yolu, im zaman imleci, tx-* tonlu yazı.
 const STIL = `<style>
   .lbl{fill:#52525B}.mut{fill:#A1A1AA}.trk{fill:#000000;fill-opacity:.08}.im{fill:#3F3F46}
-  ${Object.entries(TON).map(([ad, c]) => `.tx-${ad}{fill:${c}}`).join("")}
-  @media (prefers-color-scheme:dark){
-    .lbl{fill:#D4D4D8}.mut{fill:#71717A}.trk{fill:#FFFFFF;fill-opacity:.1}.im{fill:#E4E4E7}
-    ${Object.entries(YAZI_KOYU).map(([ad, c]) => `.tx-${ad}{fill:${c}}`).join("")}
-  }</style>`;
+  ${Object.entries(TON).map(([ad, c]) => `.tx-${ad}{fill:${c}}`).join("")}</style>`;
 
 const r1 = n => Math.round(n * 2) / 2;
 export const kacis = s => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
