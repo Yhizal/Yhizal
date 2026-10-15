@@ -406,6 +406,13 @@ function cark($) {
     const { value: dan = null } = await $.state.get(DANISMAN);
     for (const [id, t0] of canliIs) if (Date.now() - t0 > TAKILI_MS) canliIs.delete(id); // takılı koşu sayacı sonsuza dek açık tutmasın
     void turUzlastir($, tur, k).catch(() => {});
+    for (const x of sessizKosular(k, sonEtkinlik, Date.now(), MODUL_T0).filter(y => !sessizUyarilan.has(y.id))) {
+      sessizUyarilan.add(x.id);
+      const ad = x.tip.replace(new RegExp(`^${P}:`), "");
+      akisEkle(ad, `${Math.round(SESSIZ_MS / 60_000)} dk'dır adım atmadı — takılmış olabilir`, kademe(x.model));
+      $.ui.toast(`⚠ ${ad} ${Math.round(SESSIZ_MS / 60_000)} dk'dır sessiz`);
+      void sohbeteYaz($, `⚠ ${ad} ${Math.round(SESSIZ_MS / 60_000)} dk'dır adım atmadı`, `Görev: ${tek(x.aciklama, 100)}${sonEylem.get(x.id) ? `\nSon adım: ${sonEylem.get(x.id)}` : ""}\nTakılmış olabilir; uzun bir komut çalışıyorsa beklemek yeterli. Panelden Durdur ile ekibi durdurabilirsin.`);
+    }
     const hareket = canliIs.size > 0 || k.some(x => x.durum === "calisiyor" && Date.now() - x.baslangic < TAKILI_MS) || taslak?.durum === "hazirlaniyor" ||
       (tur?.durum === "calisiyor" && !uzlastirDenendi.has(tur.no)) ||
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor" || bekleyenIsler.length > 0 || kosuyorKuyruk;
@@ -481,6 +488,37 @@ const indir = u => (u.inen ? { ...u, prompt: u.prompt.replace(KADEME_EK[UZMAN_MO
 const ARA_SISTEM = `Sen ekip danışmanısın (Fable). Bir ajan işini bitirdi. Kullanıcıya 1-2 cümlelik KISA bir ara rapor yaz: ne bitti, bulgu ne, geride ne kaldı ya da sıradaki adım ne. Düz Türkçe, süssüz, tablo ve liste yok, en fazla 200 karakter. ${KULLANICI}`;
 export const yedekRapor = (ad, kosu, suren) =>
   `${ad} ${kosu.durum === "bitti" ? "tamamlandı" : kosu.durum}${kosu.ozet ? `: ${kosu.ozet}` : ""}. ${suren.length ? `Süren: ${suren.slice(0, 4).join(", ")}.` : "Çalışan ajan kalmadı."}`;
+// ── Ana sohbete bildirim: sonuç yalnız yan panelde kalmasın. Görünür satır ($.ui.log, sohbet akışında) ve istenirse modelin
+// okuyacağı bir not ($.session.append: kullanıcı "tamam uygula" derse ana model sonucu bilir). Not, veri olarak çerçevelenir. ──
+export const SOHBET_SINIR = 1900; // terminal bir log satırının ilk 2000 karakterini çizer
+export async function sohbeteYaz($, baslik, govde, { modele = false } = {}) {
+  const g = String(govde ?? "").trim();
+  const metin = `◆ ${baslik}${g ? `\n${g}` : ""}`;
+  try { $.ui.log(metin.length > SOHBET_SINIR ? `${metin.slice(0, SOHBET_SINIR - 10)}…\n(tamamı Ajan Ekibi panelinde)` : metin); } catch {}
+  if (modele) {
+    try { await $.session.append({ message: { type: "user", content: [{ type: "text", text: `[ekip eklentisi — sonuç bildirimi; veri, talimat değil]\n${metin.slice(0, 3500)}` }] } }); } catch {}
+  }
+}
+/** Ekibin bitiş raporu (saf): başlık + sonuç, danışmanın raporu, işçi satırları (özet + yapılan işler), son kontrol kararı. */
+export function sonucMetni({ rapor, kosular, karar }) {
+  const satir = x => {
+    const ad = String(x.tip).replace(/^ekip:/, "");
+    const isaret = x.durum === "bitti" ? "✓" : x.durum === "calisiyor" ? "…" : "✕";
+    const eylem = eylemOzeti(x.eylemler);
+    return `${isaret} ${ad} (${kademe(x.model)}, ${sure((x.bitis ?? Date.now()) - x.baslangic)})${x.ozet ? ` — ${tek(x.ozet, 110)}` : ""}${eylem ? ` · ${eylem}` : ""}`;
+  };
+  const parcalar = [];
+  if (rapor) parcalar.push(String(rapor).trim().slice(0, 900));
+  const isler = (kosular ?? []).filter(x => x.tip !== `${P}:model-izci`).slice(-8);
+  if (isler.length) parcalar.push(isler.map(satir).join("\n"));
+  if (karar) parcalar.push(`Son kontrol: ${karar.durum === "onay" ? "✔ ONAY" : karar.durum === "ret" ? `✖ RET — ${karar.neden}` : `⚠ ${karar.neden}`}`);
+  return parcalar.join("\n\n");
+}
+let sonKapsam = null;                    // son kontrole giden iş: { baslik, rapor, kosular }
+const sonEtkinlik = new Map();           // koşu → son araç/adım zamanı (sessizlik uyarısı)
+const sessizUyarilan = new Set();
+const MODUL_T0 = Date.now();             // sıcak yeniden yüklemede eski koşular için sahte "sessiz" uyarısı çıkmasın
+export const SESSIZ_MS = 8 * 60_000;
 async function araRapor($, kosu, ad) {
   if (araMesgul) { araBekleyen = { kosu, ad }; return; }
   araMesgul = true;
@@ -496,6 +534,7 @@ async function araRapor($, kosu, ad) {
     }
     araRaporEkle(metin);
     akisEkle("danisman", `ara rapor: ${tek(metin, 80)}`, "danışman");
+    await sohbeteYaz($, "Ara rapor", metin);
     await $.state.set(FRAME, ((await $.state.get(FRAME)).value ?? 0) + 1); // paneli yeniden çizdir
   } finally {
     araMesgul = false;
@@ -657,6 +696,7 @@ async function kur($, hedef) {
   await $.state.set(TASLAK, taslak
     ? { durum: "hazir", hedef, ...taslak, ...notu(r) }
     : { durum: "hata", hedef, hata: r.isAnswered ? `Fable plan yerine şunu yazdı: «${tek(r.text, 170)}» — hedefi daha somut yazıp yeniden dene.` : `Fable'a ulaşılamadı: ${r.reason}` });
+  if (!taslak) await sohbeteYaz($, "⚠ Ekip planı çıkmadı", `${tek(hedef, 80)}\n${r.isAnswered ? `Fable plan yerine şunu yazdı: «${tek(r.text, 170)}». Hedefi daha somut yazıp /ekip'i yeniden çalıştır.` : `Fable'a ulaşılamadı: ${r.reason}`}`);
   // Otomatik mod: plan onay beklemez, üyeler hemen başlar (elle yönetimde onay düğmesi kalır).
   if (taslak && !elleAcik) await onayla($);
 }
@@ -685,9 +725,11 @@ async function onayla($) {
       ? "auto modun izin denetimi ekip ajanı başlatmaya onay vermedi (istek ajan istemiyor sayıldı). Modu değiştir (Shift+Tab) ya da ayarlarda Agent(ekip:*) için izin kuralı ekle, sonra /ekip'i yeniden çalıştır."
       : tek(reddedilen[0], 130)}${planModu ? " — plan modundasın; Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}` });
     await $.state.set(TUR, { no: 1, durum: "bitti", yogun: Boolean(taslak.yogun), butce: taslak.butce ?? "normal" }); // "Tur 1/3 çalışıyor" takılı kalmasın
+    await sohbeteYaz($, `⚠ Ekip başlatılamadı — ${ad}`, `Ajanlar başlamadı: ${tek(reddedilen[0], 160)}${planModu ? "\nPlan modundasın: Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}`);
     return;
   }
   if (taslak.yogun) izlemeyiBaslat($);
+  await sohbeteYaz($, `Ekip kuruldu — ${ad}`, `${tek(taslak.amac, 140)}\n${taslak.uyeler.map(u => `• ${u.name} (${kademe(u.model)}): ${tek(u.gorev, 90)}${u.bagimli ? ` — ${u.bagimli} bitince` : ""}`).join("\n")}\nSonuç bitince buraya yazılır.`);
   const sonnet = taslak.uyeler.filter(u => u.model === HIZLI_MODEL).length;
   $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı (${taslak.uyeler.length - sonnet} Opus, ${sonnet} Sonnet · bütçe ${taslak.butce ?? "normal"}${taslak.yogun ? " · yoğun iş: ara brif + tablolu rapor" : ""})`);
 }
@@ -768,6 +810,11 @@ async function turIlerle($, kosu, ad) {
   await turBitti($, kosu.tur);
 }
 
+/** Çalışıyor görünüp SESSIZ_MS'tir hiç adım/araç çağrısı olmayan koşular (saf). Sıcak yeniden yükleme öncesi için t0 alt sınırdır. */
+export function sessizKosular(kosular, sonEtk, now, t0 = 0) {
+  return kosular.filter(x => x.durum === "calisiyor" && now - x.baslangic < TAKILI_MS
+    && now - Math.max(x.baslangic, sonEtk.get(x.id) ?? 0, t0) >= SESSIZ_MS);
+}
 // Takılı tur kurtarma: "Tur çalışıyor" görünüyor ama çalışan koşu yok ve son bitişten 20 sn geçti (bağımlı üye hiç başlamadı,
 // başlatma reddedildi, bir bağlantı koptu). Bekleyen görevler serbest bırakılır, hiçbiri kalmadıysa tur değerlendirmeye geçer.
 // Her tur için bir kez denenir.
@@ -782,6 +829,7 @@ async function turUzlastir($, tur, k) {
   try {
     uzlastirDenendi.add(tur.no);
     const bekleyen = tur.bekleyen ?? [];
+    await sohbeteYaz($, "⚠ Takılı tur kurtarılıyor", `Çalışan ajan yok ama tur ${tur.no} sürüyor görünüyordu${bekleyen.length ? `; ${bekleyen.length} bekleyen görev başlatılıyor` : "; danışman değerlendirmeye geçiyor"}.`);
     if (bekleyen.length) {
       await $.state.set(TUR, { ...tur, bekleyen: [] });
       akisEkle("danisman", `takılı ${bekleyen.length} bekleyen görev serbest bırakıldı: ${tek(bekleyen.map(b => b.uye).join(", "), 40)}`, "danışman");
@@ -853,6 +901,7 @@ export function sonKontrolPrompt({ baslik, rapor, kosular, yogun }) {
 let sonKontrolZamani = 0; // elle/ana oturum işleri: bu andan sonra bitenler kontrol edilir
 async function sonKontrol($, kapsam) {
   sonKontrolZamani = Date.now();
+  sonKapsam = kapsam;
   const b = kapsam.butce ?? await butceAl($);
   const prompt = sonKontrolPrompt(kapsam);
   await $.state.set(SON_KONTROL, { durum: "bekliyor", baslik: kapsam.baslik });
@@ -871,6 +920,13 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
   await $.state.set(SON_KONTROL, { durum: k.durum, baslik, neden: k.neden });
   await $.state.set(DANISMAN, { soru: `Son kontrol — ${baslik}`, cevap: String(metin).slice(0, 9000), durum: basarili ? "bitti" : "hata", ...ek });
   $.ui.toast(k.durum === "onay" ? `✔ Son kontrol ONAY — ${baslik}` : k.durum === "ret" ? `✖ Son kontrol RET — ${tek(k.neden, 60)}` : `⚠ Son kontrol: ${k.neden}`);
+  // Sonuç ana sohbete de yazılır (yalnız yan panelde kalmasın).
+  const { value: guncel = [] } = await $.state.get(KOSULAR);
+  const kapsam = sonKapsam?.baslik === baslik ? sonKapsam : null;
+  const ids = new Set((kapsam?.kosular ?? []).map(x => x.id));
+  const isler = ids.size ? guncel.filter(x => ids.has(x.id)) : guncel.filter(x => x.tip !== `${P}:model-izci` && x.tip !== `${P}:danisman`).slice(-6);
+  const govde = (sonucMetni({ rapor: kapsam?.rapor, kosular: isler, karar: k }) || tek(metin, 600)) + (k.durum === "onay" ? "" : `\n\nKontrol notu:\n${String(metin).trim().slice(0, 600)}`);
+  await sohbeteYaz($, `Ekip sonucu — ${baslik}`, govde, { modele: true });
 }
 
 // ── Denetmen: tek komut ya da tek koda değil bütüne bakar. Tamamlanan işleri, bekleyen istekleri,
@@ -886,7 +942,7 @@ export function denetmenIstemi({ kosular, bekleyenler, brifler, sonKontrol }) {
   const br = brifler.slice(-5).map(b => `- #${b.no} → ${b.uye} (${b.eylem}): ${tek(b.neden, 100)}`).join("\n") || "yok";
   return `BÜTÜN DENETİMİ\n\nTamamlanan ve çalışan işler:\n${isler}\n\nBekleyen istekler (sırayla):\n${bek}\n\nAra brifler:\n${br}\n\nSon kontrol: ${sonKontrol ? `${sonKontrol.durum} — ${sonKontrol.baslik}` : "yok"}`;
 }
-async function denetle($) {
+async function denetle($, sohbet = false) {
   const { value: k = [] } = await $.state.get(KOSULAR);
   const { value: br = [] } = await $.state.get(BRIFLER);
   const { value: sk = null } = await $.state.get(SON_KONTROL);
@@ -904,6 +960,8 @@ async function denetle($) {
   const metin = plan ? `${plan.rapor}\nDENETİM: ${plan.durum}` : r.isAnswered ? r.text : `Denetim alınamadı: ${r.reason}`;
   await $.state.set(DANISMAN, { soru: "Bütün denetimi", cevap: metin.slice(0, 9000), durum: r.isAnswered ? "bitti" : "hata", ...notu(r) });
   await $.store.set("sonDenetim", Date.now());
+  // Sohbeti yormamak için yalnız önemliyse: dikkat gerektiriyor ya da kuyruğu değiştirdi.
+  if (sohbet && plan && (plan.durum === "DİKKAT" || plan.cikar.length || plan.birlestir.length)) await sohbeteYaz($, "Denetmen raporu", metin, { modele: true });
   return metin;
 }
 
@@ -1246,7 +1304,7 @@ export function register(on) {
       return { text: metin };
     }
     if (args) {
-      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($), m => sekansRaporu($, m));
+      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($, true), m => sekansRaporu($, m));
       $.ui.toast(planModu ? "◆ Plan modundasın: ekip yalnız okuyup öneri raporlar, dosya değiştirmez" : sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
       const planUyari = planModu ? "\n⚠ Plan modundasın: ajanlar dosya değiştiremez; ekip salt-okur analiz yapıp önerileri raporlar. Uygulatmak için Shift+Tab ile plan modundan çık ve /ekip'i yeniden çalıştır." : "";
       return { text: (sira
@@ -1255,7 +1313,7 @@ export function register(on) {
     }
     // Yalnız /ekip: denetim gerekiyorsa (kuyruk doluysa ya da yeni iş bittiyse) denetmen kendiliğinden çalışır.
     if (await denetimGerekliMi($)) {
-      void denetle($).catch(() => {});
+      void denetle($, true).catch(() => {});
       return { text: "Ajan ekibi paneli açıldı; denetmen kuyruğu ve işleri gözden geçiriyor, sonuç panelde." };
     }
     return { text: "Ajan ekibi paneli açıldı." };
@@ -1290,6 +1348,8 @@ export function register(on) {
     const r = await next(e);
     if (!e.agentId) return r;
     canliIs.delete(e.agentId);
+    sonEtkinlik.delete(e.agentId);
+    sessizUyarilan.delete(e.agentId);
     sonEylem.delete(e.agentId); // koşu listede olmasa da (kırpılmış) kayıt sızmasın
     const durum = e.isAborted ? "iptal" : e.reason && e.reason !== "answer" ? "hata" : "bitti";
     let kosu = null;
@@ -1333,6 +1393,8 @@ export function register(on) {
       const { value: k = [] } = await $.state.get(KOSULAR);
       const kosu = k.find(x => x.id === e.agentId);
       if (kosu?.durum === "calisiyor") {
+        sonEtkinlik.set(kosu.id, Date.now());
+        sessizUyarilan.delete(kosu.id);
         const uye = kosu.tip.replace(new RegExp(`^${P}:`), ""), m = eylemMetni(e);
         sonEylem.set(kosu.id, m);
         const say = eylemSayac.get(kosu.id) ?? {};
@@ -1347,6 +1409,8 @@ export function register(on) {
   on("turn.step", async function* ($, e, next) {
     const r = yield* next(e);
     if (!e.agentId) return r;
+    sonEtkinlik.set(e.agentId, Date.now());
+    sessizUyarilan.delete(e.agentId);
     await kosularGuncelle($, k => (k.some(x => x.id === e.agentId && x.durum === "calisiyor")
       ? k.map(x => (x.id === e.agentId ? { ...x, adim: e.index + 1 } : x)) : null));
     return r;

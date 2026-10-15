@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -58,7 +58,7 @@ test('panelden görev ver: tuş → görev kutusu → doğru ajan tipi başlar; 
   const toasts: string[] = []
   on('ui.toast', (_$: unknown, e: any) => (toasts.push(String(e.text)), { value: undefined }) as never)
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
   on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
@@ -163,7 +163,7 @@ test('ilerleme ve temalı pist: bitmeden %95 sınırı, tema döner, genişlik s
 
 test('/ekip kur (otomatik): Fable planı onay beklemeden başlar, her üye görevle', async ($, on) => {
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -201,7 +201,7 @@ test('hex renk (Clawd turuncusu) motor tarafından kabul edilir', { plugins: [{ 
 })
 
 test('sade mod: terminalde ağaç, uygulamada tek animatif şema (yalnız çalışan işte hareket); saat ilerleyince blit yok', async ($, on) => {
-  const saat = mock.clock(on); mock.store(on, {})
+  const saat = mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -238,7 +238,7 @@ test('sade mod: terminalde ağaç, uygulamada tek animatif şema (yalnız çalı
 
 test('yoğun iş: kademeli model ataması ve bağımlı üye sırası', async ($, on) => {
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   const toasts: string[] = []
   on('ui.toast', (_$: unknown, e: any) => (toasts.push(String(e.text)), { value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
@@ -292,7 +292,7 @@ test('tur adımı: biten üye bağımlıyı açar (çıktısıyla), yoğun işte
 
 test('kritik kota: Fable bütçeyi görür, plan 2 üyeye ve yalnız Sonnet\'e kırpılır', async ($, on) => {
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   const toasts: string[] = []
   on('ui.toast', (_$: unknown, e: any) => (toasts.push(String(e.text)), { value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
@@ -346,7 +346,7 @@ test('son kontrol: karar satırı okunur, istem doğrulama ister; elle işler he
 
 test('dinamik strateji: danışman projeye göre yazar, plana eklenir, sonraki kurulumda önbellekten; Haiku ataması', async ($, on) => {
   mock.clock(on)
-  mock.store(on, {})
+  mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -463,7 +463,7 @@ test('canlı akış: eylem metni, ÖZET satırı; akış şemada en yeni üstte,
 })
 
 test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla panele yansır, iş bitince sayaç durur', async ($, on) => {
-  const saat = mock.clock(on); mock.store(on, {})
+  const saat = mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -494,7 +494,7 @@ test('dinamik panel: ekip dışı ajan görünür, araç çağrısı sayaçla pa
 })
 
 test('eşzamanlı başlayan üç ajan birbirinin kaydını ezmez (hepsi çalışıyor görünür)', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -600,7 +600,7 @@ test('iş bitince yerinde durur: biten ekip dışı ajan listede kalır, sayıml
 })
 
 test('ara rapor: danışman her bitişte kısa rapor yazar; panelde danışman şeridinde görünür', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -649,7 +649,7 @@ test('JSON ayıklama: dengeli parantez; baştaki/sondaki açıklama ve kod bloğ
 })
 
 test('plan okunamayınca Fable bir kez yalnız-JSON uyarısıyla yeniden sorulur; ikincisi geçerliyse iş başlar', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -695,7 +695,7 @@ test('oturum bağlamı: eski konuşmadan son istekler, değişen dosyalar ve son
 })
 
 test('eski konuşmaya eklenen kısa hedef: plan isteği oturum bağlamını taşır; sıradaki iş bildirimi doğru', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -724,7 +724,7 @@ test('eski konuşmaya eklenen kısa hedef: plan isteği oturum bağlamını taş
 })
 
 test('plan modu: işçiler salt-okur uyarısıyla başlar, Fable bilgilenir; ajanlar reddedilirse panelde neden yazar', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -759,7 +759,7 @@ test('plan modu: işçiler salt-okur uyarısıyla başlar, Fable bilgilenir; aja
 })
 
 test('auto mod sınıflandırıcısı ajan başlatmayı reddederse: panelde sebep ve çözüm yazar, tur takılı kalmaz', async ($, on) => {
-  mock.clock(on); mock.store(on, {})
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
   on('ui.toast', () => ({ value: undefined }) as never)
   on('session.start', (_$: unknown, e: any) => e as never)
   on('command.register', () => ({ value: undefined }) as never)
@@ -812,4 +812,107 @@ test('canlı akış belleği boşken son olaylar koşu kayıtlarından türetili
   ]
   const a = turetilmisAkis(k, now)
   expect(a.map((x: any) => [x.uye, x.metin])).toEqual([['hafif-isci', 'tamamladı — 5 dosya tarandı'], ['hafif-isci', 'başladı — hooks envanteri']])
+})
+
+// ── Sonuç ana sohbete yazılır (yalnız yan panelde kalmasın) ──
+test('sonuç metni: rapor, işçi satırları (özet + yapılan işler) ve son kontrol kararı', () => {
+  const now = 60_000_000
+  const m = sonucMetni({ rapor: 'Hedef tamam.', kosular: [
+    { id: 'a', tip: 'ekip:hafif-isci', model: 'claude-haiku-5-5', durum: 'bitti', baslangic: now - 40_000, bitis: now, ozet: 'envanter çıktı', eylemler: { Read: 9, Grep: 2 } },
+    { id: 'b', tip: 'ekip:model-izci', model: 'claude-haiku-5-5', durum: 'bitti', baslangic: now - 9000, bitis: now },
+    { id: 'c', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'hata', baslangic: now - 60_000, bitis: now },
+  ] as any, karar: { durum: 'ret', neden: 'test eksik' } })
+  expect(m).toMatch(/^Hedef tamam\./)
+  expect(m).toMatch(/✓ hafif-isci \(hafif, 0:40\) — envanter çıktı · 9 dosya okudu · 2 arama/)
+  expect(m).toMatch(/✕ test-yazici/)
+  expect(m).not.toMatch(/model-izci/)
+  expect(m).toMatch(/Son kontrol: ✖ RET — test eksik/)
+})
+
+test('sessiz ajan: 8 dk adım atmayan çalışan koşu uyarılır; etkinlik varsa ya da yeni yüklendiyse uyarılmaz', () => {
+  const now = 70_000_000
+  const k: any[] = [
+    { id: 'sessiz', tip: 'ekip:hizli-isci', durum: 'calisiyor', baslangic: now - 20 * 60_000 },
+    { id: 'canli', tip: 'ekip:test-yazici', durum: 'calisiyor', baslangic: now - 20 * 60_000 },
+    { id: 'yeni', tip: 'ekip:dokumantasyoncu', durum: 'calisiyor', baslangic: now - 2 * 60_000 },
+    { id: 'bitti', tip: 'ekip:kod-inceleyici', durum: 'bitti', baslangic: now - 30 * 60_000, bitis: now - 20 * 60_000 },
+  ]
+  const etk = new Map([['canli', now - 60_000]])
+  expect(sessizKosular(k, etk, now).map((x: any) => x.id)).toEqual(['sessiz'])
+  expect(sessizKosular(k, etk, now, now - 60_000)).toEqual([])      // eklenti az önce yüklendi: eski koşular için sahte uyarı yok
+})
+
+function sohbetKur($: any, on: any) {
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
+  const logs: string[] = [], notlar: string[] = []
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('ui.log', (_$: unknown, e: any) => (logs.push(String(e.text)), { value: undefined }) as never)
+  on('turn.complete', () => ({ text: '' }) as never)
+  on('session.append', (_$: unknown, e: any, next: any) => { notlar.push(JSON.stringify(e.message ?? e)); return next(e) })
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
+  return { logs, notlar }
+}
+
+test('senaryo: ekip planlandı ve kuruldu — ana sohbete "Ekip kuruldu" + üye görevleri yazılır', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => {
+    const sis = String(e.system)
+    const text = /model kullanım stratejisi/.test(sis) ? JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } })
+      : JSON.stringify({ ad: 'Okuma Ekibi', amac: 'modülü oku', uyeler: [{ ad: 'okuyucu', model: 'sonnet', araclar: ['Read'], gorev: 'modülü oku ve özetle', bitis_olcutu: 'özet' }] })
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'a1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'modülü oku', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 150))
+  expect(logs.join('\n---\n')).toMatch(/Ekip kuruldu — Okuma Ekibi[\s\S]*• okuyucu \(hızlı\): modülü oku ve özetle[\s\S]*Sonuç bitince buraya yazılır/)
+})
+
+test('senaryo: iş bitti — ara rapor ve son sonuç ana sohbete yazılır, ana model de bilgilendirilir', async ($, on) => {
+  const { logs, notlar } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => {
+    const text = /SON KONTROL/.test(String(e.prompt)) ? 'Kontrol tamam, çelişki yok.\nKARAR: ONAY'
+      : /ara rapor yaz/.test(String(e.system)) ? 'hizli-isci modülü okudu; sıradaki adım yok.' : 'ok'
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'r1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'köprü modülünü oku', subagentType: 'ekip:hizli-isci', description: 'köprüyü oku' } as never)
+  await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: 3 dosya okundu', durationMs: 9000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await new Promise(r => setTimeout(r, 300))
+  const hepsi = logs.join('\n---\n')
+  expect(hepsi).toMatch(/Ara rapor\nhizli-isci modülü okudu/)
+  const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
+  expect(sonuc).toMatch(/✓ hizli-isci \(hızlı, \d+:\d+\) — 3 dosya okundu/)   // işçi satırı: özet + süre
+  expect(sonuc).toMatch(/Son kontrol: ✔ ONAY/)
+  expect(notlar.some(x => /veri, talimat değil/.test(x) && /Ekip sonucu —/.test(x))).toBe(true)   // ana model de bilir
+})
+
+test('senaryo: son kontrol RET — kontrol notu da sohbete düşer', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => {
+    const text = /SON KONTROL/.test(String(e.prompt)) ? '| Kontrol | Sonuç |\n| test | eksik |\nKARAR: RET — testler eklenmemiş' : 'kısa rapor'
+    return { value: { isAnswered: true, usage: {}, text } } as never
+  })
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'r1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:hizli-isci', description: 'x' } as never)
+  await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: bitti', durationMs: 3000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await new Promise(r => setTimeout(r, 300))
+  const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
+  expect(sonuc).toMatch(/Son kontrol: ✖ RET — testler eklenmemiş/)
+  expect(sonuc).toMatch(/Kontrol notu:[\s\S]*test \| eksik/)
+})
+
+test('senaryo: plan çıkmadı — Fable soru sorarsa ana sohbete uyarı yazılır', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => ({ value: { isAnswered: true, usage: {}, text: /model kullanım stratejisi/.test(String(e.system)) ? JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) : 'Hangi dosyayı kastediyorsun?' } }) as never)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'toparla', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 200))
+  expect(logs.join('\n---\n')).toMatch(/⚠ Ekip planı çıkmadı[\s\S]*Hangi dosyayı kastediyorsun/)
 })
