@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -915,4 +915,45 @@ test('senaryo: plan çıkmadı — Fable soru sorarsa ana sohbete uyarı yazıl�
   await $.command.run({ command: 'ekip', args: 'toparla', origin: 'user' } as never)
   await new Promise(r => setTimeout(r, 200))
   expect(logs.join('\n---\n')).toMatch(/⚠ Ekip planı çıkmadı[\s\S]*Hangi dosyayı kastediyorsun/)
+})
+
+test('bekleyen sonuç: son kontrol bitmiş, koşan iş yok ve son iş son bildirimden yeniyse sohbete yazılmamış sonuç vardır', () => {
+  const now = 80_000_000
+  const k: any[] = [
+    { id: 'a', tip: 'ekip:model-dogrulayici', durum: 'bitti', baslangic: now - 300_000, bitis: now - 100_000 },
+    { id: 'd', tip: 'ekip:danisman', durum: 'bitti', baslangic: now - 90_000, bitis: now - 10_000 },
+    { id: 'i', tip: 'ekip:model-izci', durum: 'bitti', baslangic: now - 50_000, bitis: now - 1_000 },
+  ]
+  const onay = { durum: 'onay', baslik: 'sim' }
+  expect(bekleyenSonuc(onay, k, 0)?.sonIs).toBe(now - 100_000)         // danışman/izci bitişi sayılmaz
+  expect(bekleyenSonuc(onay, k, now - 50_000)).toBeNull()                // zaten bildirilmiş
+  expect(bekleyenSonuc({ durum: 'bekliyor' }, k, 0)).toBeNull()          // son kontrol sürüyor
+  expect(bekleyenSonuc(null, k, 0)).toBeNull()
+  expect(bekleyenSonuc(onay, [...k, { id: 'c', tip: 'ekip:hizli-isci', durum: 'calisiyor', baslangic: now - 5000 }], 0)).toBeNull()   // iş sürüyor
+})
+
+test('panel: iş bittiyse danışman şeridi "İş bitti · son kontrol onaylandı" der, "Hazır · bekliyor" demez', () => {
+  const ekip: any = { ad: 'x', amac: 'y', uyeler: ['danisman', 'hizli-isci'] }
+  const now = 90_000_000
+  const k: any[] = [{ id: 'a', tip: 'ekip:hizli-isci', model: 'claude-sonnet-5-5', durum: 'bitti', baslangic: now - 60_000, bitis: now - 1000, aciklama: 'x', ozet: 'tamam' }]
+  const v: any = semaVerisi(ekip, k, { now, tur: { no: 1, durum: 'bitti' }, sk: { durum: 'onay' } })
+  const svg = semaSvg(v)
+  expect(svg).toMatch(/İş bitti · son kontrol onaylandı/)
+  expect(svg).toMatch(/>Bitti</)
+  expect(svg).not.toMatch(/işleri yönlendirmek için bekliyor/)
+})
+
+test('senaryo: sonuç bildirimi bir kez yazılır; eklenti yeniden yüklenince (session.start) tekrar yazılmaz', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => ({ value: { isAnswered: true, usage: {}, text: /SON KONTROL/.test(String(e.prompt)) ? 'ok\nKARAR: ONAY' : 'kısa rapor' } }) as never)
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'r1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:hizli-isci', description: 'x' } as never)
+  await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: bitti', durationMs: 3000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await new Promise(r => setTimeout(r, 300))
+  const say = () => logs.filter(l => /Ekip sonucu —/.test(l)).length
+  expect(say()).toBe(1)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)   // sıcak yeniden yükleme
+  await new Promise(r => setTimeout(r, 150))
+  expect(say()).toBe(1)
 })

@@ -172,13 +172,16 @@ export function sadeSvg(m) {
   const dSatir = [];
   if (mesgul) dSatir.push({ t: kisalt(m.danisman.odak || m.danisman.durum, 76), c: "ink" });
   if (m.danisman.rapor) for (const t of sarma(`Ara rapor · ${m.danisman.raporZ} — ${m.danisman.rapor}`, 78, mesgul ? 2 : 3)) dSatir.push({ t, c: mesgul ? "mut" : "ink" });
+  // İş bittiyse bunu açıkça söyle ("Hazır · bekliyor" işin bitip bitmediğini belirsiz bırakıyordu).
+  const isBitti = !mesgul && /^tamamlandı/.test(m.tur?.yazi ?? "");
+  if (isBitti) dSatir.unshift({ t: `İş bitti${skYazi ? ` · ${skYazi.replace(/^Son kontrol: /, "son kontrol ")}` : ""}`, c: "ok" });
   if (!dSatir.length) dSatir.push({ t: brifSay ? `Hazır · bu işte ${brifSay} brif verdi` : "Hazır · işleri yönlendirmek için bekliyor", c: "mut" });
   const dh = 36 + dSatir.length * 19;
   const hareketVar = anim && (mesgul || satirlar.some(u => u.durum === "calisiyor"));
   // Danışman çalışırken: dönen gösterge + dönen durum kelimeleri (Düşünüyor → Değerlendiriyor → …)
   const durumSvg = mesgul && anim
     ? `${donen(SW - PAD - 138, dy + 20)}${kelimeDonguSvg(SW - PAD - 124, dy + 24)}`
-    : `<text x="${SW - PAD - 14}" y="${dy + 24}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : "Hazır"}</text>`;
+    : `<text x="${SW - PAD - 14}" y="${dy + 24}" text-anchor="end" font-size="12.5" font-weight="600" class="${mesgul ? "acc" : "ok"}">${mesgul ? "Çalışıyor" : isBitti ? "Bitti" : "Hazır"}</text>`;
   const danisman = `<g><title>Danışman: ${k(m.danisman.durum)}</title>
     <rect x="${PAD}" y="${dy}" width="${SW - 2 * PAD}" height="${dh}" rx="12" class="tdan"/>
     ${ikonDaire(PAD + 26, dy + 29, "yildiz", mesgul ? "calisiyor" : "bitti", 17, anim && mesgul)}

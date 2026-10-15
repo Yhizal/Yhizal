@@ -514,6 +514,28 @@ export function sonucMetni({ rapor, kosular, karar }) {
   if (karar) parcalar.push(`Son kontrol: ${karar.durum === "onay" ? "✔ ONAY" : karar.durum === "ret" ? `✖ RET — ${karar.neden}` : `⚠ ${karar.neden}`}`);
   return parcalar.join("\n\n");
 }
+/** Sohbete henüz yazılmamış bir bitiş sonucu var mı (saf)? Son kontrol bitmiş, koşan iş yok ve son işin bitişi son bildirimden yeni.
+ *  Eklenti bu sürümden önce çalışmış (ya da bildirim kaçmış) işler için "ekip bitti mi?" belirsizliğini giderir. */
+export function bekleyenSonuc(sk, kosular, sonBildirim) {
+  if (!sk || !["onay", "ret", "hata"].includes(sk.durum)) return null;
+  if (kosular.some(x => x.durum === "calisiyor")) return null;
+  const isler = kosular.filter(x => x.tip !== `${P}:model-izci` && x.tip !== `${P}:danisman`);
+  const sonIs = Math.max(0, ...isler.map(x => x.bitis ?? 0));
+  if (!sonIs || sonIs <= (sonBildirim ?? 0)) return null;
+  return { isler: isler.slice(-6), sonIs };
+}
+async function bekleyenBildirim($) {
+  const { value: sk = null } = await $.state.get(SON_KONTROL);
+  const { value: k = [] } = await $.state.get(KOSULAR);
+  const b = bekleyenSonuc(sk, k, await $.store.get("sonBildirim"));
+  if (!b) return false;
+  const { value: dan = null } = await $.state.get(DANISMAN);
+  const karar = { durum: sk.durum, neden: sk.neden ?? "" };
+  const govde = sonucMetni({ kosular: b.isler, karar }) + (dan?.cevap && /Son kontrol/.test(dan.soru ?? "") ? `\n\nKontrol notu:\n${String(dan.cevap).trim().slice(0, 600)}` : "");
+  await $.store.set("sonBildirim", Date.now());
+  await sohbeteYaz($, `Ekip sonucu — ${sk.baslik ?? "son iş"} (sohbete yazılmamıştı)`, govde, { modele: true });
+  return true;
+}
 let sonKapsam = null;                    // son kontrole giden iş: { baslik, rapor, kosular }
 const sonEtkinlik = new Map();           // koşu → son araç/adım zamanı (sessizlik uyarısı)
 const sessizUyarilan = new Set();
@@ -926,6 +948,7 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
   const ids = new Set((kapsam?.kosular ?? []).map(x => x.id));
   const isler = ids.size ? guncel.filter(x => ids.has(x.id)) : guncel.filter(x => x.tip !== `${P}:model-izci` && x.tip !== `${P}:danisman`).slice(-6);
   const govde = (sonucMetni({ rapor: kapsam?.rapor, kosular: isler, karar: k }) || tek(metin, 600)) + (k.durum === "onay" ? "" : `\n\nKontrol notu:\n${String(metin).trim().slice(0, 600)}`);
+  await $.store.set("sonBildirim", Date.now());
   await sohbeteYaz($, `Ekip sonucu — ${baslik}`, govde, { modele: true });
 }
 
@@ -1264,6 +1287,7 @@ export function register(on) {
     try { await yukle($, (await aktifEkip($)).ad); } catch (err) { $.ui.toast(`ekip yüklenemedi: ${String(err).slice(0, 80)}`); }
     // Danışmanın gözü: model izcisi her oturumda kayıtlı (ana modelden gizli); profil haftalıktan eskiyse tazelenir.
     try { await $.agent.register(spec("model-izci")); void profilYasliysaYenile($).catch(() => {}); } catch {}
+    void bekleyenBildirim($).catch(() => {}); // sıcak yeniden yüklemede: sohbete yazılmamış bitiş sonucu varsa şimdi yaz
     return r;
   });
 
@@ -1312,11 +1336,13 @@ export function register(on) {
         : "İstek alındı; Fable konuşma bağlamını okuyup planlıyor, işçiler hemen ardından başlar. İlerleme panelde.") + planUyari };
     }
     // Yalnız /ekip: denetim gerekiyorsa (kuyruk doluysa ya da yeni iş bittiyse) denetmen kendiliğinden çalışır.
+    const yazildi = await bekleyenBildirim($); // sohbete yazılmamış bitiş sonucu varsa önce o yazılır
+    const ek = yazildi ? " Sohbete yazılmamış son ekip sonucu yukarıya yazıldı." : "";
     if (await denetimGerekliMi($)) {
       void denetle($, true).catch(() => {});
-      return { text: "Ajan ekibi paneli açıldı; denetmen kuyruğu ve işleri gözden geçiriyor, sonuç panelde." };
+      return { text: `Ajan ekibi paneli açıldı; denetmen kuyruğu ve işleri gözden geçiriyor, sonuç panelde.${ek}` };
     }
-    return { text: "Ajan ekibi paneli açıldı." };
+    return { text: `Ajan ekibi paneli açıldı.${ek}` };
   });
 
   // Kota penceresi oynadıkça paneldeki bütçe satırı tazelenir (karar anlarında ayrıca okunur).
