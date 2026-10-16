@@ -38,7 +38,7 @@ const GLIF = {
 };
 const ROL_IKON = { "kod-inceleyici": "ara", "test-yazici": "test", "hizli-isci": "cark", "hafif-isci": "liste", dokumantasyoncu: "belge",
   "firmware-analist": "cip", "arayuz-gelistirici": "pencere", "model-izci": "kure", "general-purpose": "yildiz", denetmen: "ara",
-  "belge-duzen": "belge", envanter: "liste" };
+  "belge-duzen": "belge", envanter: "liste", tasarimci: "pencere" };
 /** Üyenin ikonu: bitti ✓, hata ✕, çalışırken o anki araç, yoksa rolü. */
 export function ikonSec(u) {
   if (u.durum === "bitti") return "check";
@@ -53,6 +53,7 @@ export function ikonSec(u) {
   if (/^(Edit|Write|NotebookEdit|MultiEdit)$/i.test(arac)) return "kalem";
   if (/^(WebFetch|WebSearch)$/i.test(arac)) return "kure";
   if (/^(Agent|Task)$/i.test(arac)) return "ag";
+  if (/^(Skill|Artifact|DesignSync)$/i.test(arac)) return "pencere";
   if (/^Bash$/i.test(arac)) {
     if (/\b(test|pytest|vitest|jest|unittest)\b/i.test(arg)) return "test";
     if (/^git\b/i.test(arg)) return "dal";
@@ -66,6 +67,7 @@ const ARAC_FIIL = [
   [/^(Read|NotebookRead)$/i, "Dosya okuyor"], [/^Grep$/i, "Arıyor"], [/^(Glob|LS)$/i, "Dosyaları listeliyor"],
   [/^(Edit|MultiEdit|NotebookEdit)$/i, "Düzenliyor"], [/^Write$/i, "Dosya yazıyor"], [/^WebFetch$/i, "Sayfa okuyor"],
   [/^WebSearch$/i, "Web'de arıyor"], [/^(Agent|Task)$/i, "Alt ajan çağırıyor"],
+  [/^Skill$/i, "Tasarım becerisi çağırıyor"], [/^Artifact$/i, "Tasarım sayfası hazırlıyor"],
 ];
 const sonYol = a => String(a ?? "").split(/[\\/]/).filter(Boolean).slice(-2).join("/");
 /** "Read src/app.ts" → "Dosya okuyor · src/app.ts"; "Bash pytest -q" → "Test çalıştırıyor". Okunur Türkçe cümle. */
@@ -87,7 +89,7 @@ export function adimCumlesi(simdi) {
 
 /** Araç sayaçlarından okunur özet: { Read: 9, Grep: 2 } → "9 dosya okudu · 2 arama". Boşsa "". */
 const EYLEM_GRUP = [["dosya okudu", /^(Read|NotebookRead)$/i], ["arama", /^(Grep|Glob|LS)$/i], ["düzenleme", /^(Edit|Write|NotebookEdit|MultiEdit)$/i],
-  ["komut", /^Bash$/i], ["web sayfası", /^(WebFetch|WebSearch)$/i], ["alt ajan", /^(Agent|Task)$/i]];
+  ["komut", /^Bash$/i], ["web sayfası", /^(WebFetch|WebSearch)$/i], ["alt ajan", /^(Agent|Task)$/i], ["tasarım adımı", /^(Skill|Artifact|DesignSync)$/i]];
 export function eylemOzeti(sayac) {
   const parcalar = [];
   for (const [etiket, re] of EYLEM_GRUP) {

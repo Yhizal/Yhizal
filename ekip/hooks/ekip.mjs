@@ -30,7 +30,8 @@ export { HIZLI_MODEL };
 export const DANISMAN_ADAYLAR = ["fable", "claude-fable-5-1", "opus"];
 const MAX_TUR = 3; // Fable'ın kendi kendine atama turu üst sınırı (kota koruması)
 const MAX_UYE = 5;
-const ARAC_IZINLI = ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebFetch", "WebSearch"];
+// Skill ve Artifact yalnız tasarım üyeleri içindir (/design becerileri ve tasarım sayfası); salt-okur/hafif üyelere verilmez.
+const ARAC_IZINLI = ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebFetch", "WebSearch", "Skill", "Artifact"];
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 const MAX_KOSU = 30;
 
@@ -65,6 +66,15 @@ export const ROLLER = {
     prompt: "ThingsBoard widget/dashboard ve web arayüzü geliştir. Son kullanıcı deneyimini öncele; telemetri anahtarlarını cihaz tarafıyla uyumlu tut. Mevcut dosyada yalnız değişen bloğu düzenle. Türkçe özetle.",
     tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash"],
   },
+  // Tasarım: /design ile /ekip aynı mesajda kullanılamaz (tek slash komutu); ekip tasarım işini bu üye üzerinden yapar.
+  tasarimci: {
+    rol: "isci", model: ISCI_MODEL, maxTurns: 40, permissionMode: "acceptEdits",
+    description: "Görsel/arayüz tasarımı: şema, ekran yerleşimi, SVG varlık, tasarım eleştirisi, tasarım sistemi, UX metni, erişilebilirlik. /design becerilerini kendisi çağırır.",
+    prompt: `Tasarım işi yürütürsün. /design komutunu yazamazsın; onun yerine Skill aracıyla design becerilerini çağır: design:design-critique (eleştiri), design:design-system (sistem/bileşen), design:ux-copy (metin), design:accessibility-review (erişilebilirlik), design:design-handoff (geliştirici teslimi). Hangi becerinin uyduğunu görevden seç.
+Yüksek kaliteli çizim gereken işte (şema, ekran, simge) önce tasarımı çıkar: SVG varlık dosyası (Write) ve gerekirse Artifact aracıyla özel bir tasarım sayfası. Kodla anlık çizim yerine tasarlanmış varlık üret; uygulamaya girecek biçimi (SVG) görevde belirtilen dizine yaz. Kullanıcının Windows teması AÇIK: yalnız açık tema; sade, ferah, okunur yaz; "yapay zekâ işi" kart/rozet görünümünden ve kırpışan animasyondan kaçın.
+Mevcut kod dosyasında yalnız değişen bloğu düzenle. Çıktında ürettiğin dosya yollarını ve kullandığın becerileri listele. Türkçe özetle.`,
+    tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebFetch", "Skill", "Artifact"],
+  },
   dokumantasyoncu: {
     rol: "isci", model: HIZLI_MODEL, maxTurns: 10,
     description: "README, Doxygen başlıkları ve modül dokümantasyonu üretir.",
@@ -97,6 +107,7 @@ for (const r of Object.values(ROLLER)) if (r.rol === "isci") r.prompt += `\n\n${
 export const SABLON_EKIPLER = [
   { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici", "hizli-isci", "hafif-isci"] },
   { ad: "Arayüz ekibi", amac: "ThingsBoard/dashboard arayüzü ve dokümantasyon", uyeler: ["danisman", "arayuz-gelistirici", "dokumantasyoncu", "hizli-isci", "hafif-isci"] },
+  { ad: "Tasarım ekibi", amac: "Görsel/arayüz tasarımı: şema, ekran, SVG varlık, tasarım eleştirisi (/design becerileriyle)", uyeler: ["danisman", "tasarimci", "arayuz-gelistirici", "hizli-isci", "hafif-isci"] },
   // Firmware olmayan projelerin öntanımlısı (ör. AR-GE Takip Platformu: FastAPI + React).
   { ad: "Yazılım ekibi", amac: "Kod geliştirme, inceleme, test ve belge — Fable yönetir", uyeler: ["danisman", "kod-inceleyici", "test-yazici", "dokumantasyoncu", "hizli-isci", "hafif-isci"] },
 ];
@@ -267,6 +278,8 @@ export function adTemizle(s) {
     .replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30);
 }
 // Fable'ın JSON planını güvenli bir ekip tanımına çevirir (ad, araç, üye sayısı sınırlı).
+/** Metin tasarım/görsel iş mi (saf)? Tasarım üyesi (Skill + Artifact) ve plan ipucu buna bağlı. */
+export const tasarimMi = t => /tasar[ıi]m|design|şema|sema\b|mockup|wireframe|prototip|\bsvg\b|\bUI\b|\bUX\b|ekran yerleş|görsel|arayüz|simge|ikon|erişilebilir/i.test(String(t ?? ""));
 export function planDogrula(j) {
   if (!j || !Array.isArray(j.uyeler)) return null;
   const goruldu = new Set(["danisman"]);
@@ -275,7 +288,8 @@ export function planDogrula(j) {
     const name = adTemizle(u?.ad);
     if (!name || goruldu.has(name) || !u.gorev) continue;
     goruldu.add(name);
-    const tools = (Array.isArray(u.araclar) ? u.araclar : ["Read", "Grep", "Glob"]).filter(t => ARAC_IZINLI.includes(t));
+    const tasarimUyesi = tasarimMi(`${u.ad} ${u.aciklama} ${u.talimat} ${u.gorev}`);
+    const tools = (Array.isArray(u.araclar) ? u.araclar : ["Read", "Grep", "Glob"]).filter(t => ARAC_IZINLI.includes(t) && (tasarimUyesi || (t !== "Skill" && t !== "Artifact")));
     const model = modelSec(u.model); // danışmanın kademe kararı; tanınmayan → Opus
     uyeler.push({
       name, rol: "isci", model, maxTurns: 30,
@@ -459,7 +473,7 @@ const KUR_SISTEM = `Sen ekip kurucu danışmansın. Kullanıcının hedefine gö
 ${KURALLAR}
 
 Yalnız JSON döndür, başka metin yazma:
-{"ad":"Ekip adı","amac":"tek cümle","yogunluk":"basit|yogun","tur_plani":1,"uyeler":[{"ad":"kisa-ad","model":"opus|sonnet","aciklama":"ne zaman çağrılır","talimat":"üyenin kalıcı sistem talimatı","araclar":["Read","Grep","Glob","Edit","Write","Bash","WebFetch","WebSearch" içinden gerekenler],"gorev":"ilk görev: tam dosya yolu ve blok","bitis_olcutu":"doğrulama komutu/ölçütü (boş olamaz)","dosyalar":["değişecek dosyalar"],"beklenen_sure_dk":5,"bagimli":"önce bitmesi gereken üye adı ya da boş"}]}`;
+{"ad":"Ekip adı","amac":"tek cümle","yogunluk":"basit|yogun","tur_plani":1,"uyeler":[{"ad":"kisa-ad","model":"opus|sonnet","aciklama":"ne zaman çağrılır","talimat":"üyenin kalıcı sistem talimatı","araclar":["Read","Grep","Glob","Edit","Write","Bash","WebFetch","WebSearch","Skill","Artifact" içinden gerekenler; Skill+Artifact YALNIZ tasarım üyesine],"gorev":"ilk görev: tam dosya yolu ve blok","bitis_olcutu":"doğrulama komutu/ölçütü (boş olamaz)","dosyalar":["değişecek dosyalar"],"beklenen_sure_dk":5,"bagimli":"önce bitmesi gereken üye adı ya da boş"}]}`;
 const DEGER_SISTEM = `Sen ekibin danışmanısın. İşçilerin bu turdaki çıktılarını değerlendir; hedef tamamlanmadıysa sıradaki görevleri ata ve her görevin modelini kurallara göre seç. ${KULLANICI}
 
 ${KURALLAR}
@@ -691,8 +705,9 @@ async function kur($, hedef) {
   cark($);
   const b = await butceAl($);
   const [st, bag] = await Promise.all([stratejiHizli($), oturumBaglami($, hedef)]);
+  const tasarimNotu = tasarimMi(hedef) ? "\n\nTASARIM İŞİ: kullanıcı /design ile /ekip'i aynı mesajda kullanamaz; tasarım kısmını ekibe sen ver. En az bir üyeyi tasarım üyesi yap (ad: \"tasarimci\"; araclar: Read, Glob, Write, Skill, Artifact; model: opus). Talimatına design becerilerini Skill aracıyla çağırmasını yaz (design:design-critique, design:design-system, design:ux-copy, design:accessibility-review, design:design-handoff). Görsel varlık SVG olarak projeye yazılır; kod uygulaması ayrı bir üyede, tasarım çıktısına bağımlı olsun." : "";
   const planNotu = planModu ? "\n\nPLAN MODU AÇIK: kullanıcı oturumu plan modunda, ajanlar dosya değiştiremez. Her görevi salt-okur analiz olarak yaz; bitis_olcutu somut bir rapor (bulgu + önerilen değişiklik) olsun; Edit/Write/Bash verme." : "";
-  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
+  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${tasarimNotu}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
   let r = await fable($, { system: KUR_SISTEM, prompt: temel, maxTokens: 4500, timeoutMs: 180_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
   // Okunamayan cevap (sohbet cevabı, soru, kod bloğu, kesik JSON): bir kez, yalnız-JSON uyarısıyla yeniden sor.
@@ -1279,7 +1294,7 @@ export function register(on) {
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | animasyon [kapat] | kurallar | modeller [yenile] | strateji [yenile] | <serbest istek, sıraya girer>]" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | animasyon [kapat] | kurallar | modeller [yenile] | strateji [yenile] | <serbest istek, sıraya girer; tasarım işi yazarsan ekip /design becerilerini kendisi kullanır>]" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);

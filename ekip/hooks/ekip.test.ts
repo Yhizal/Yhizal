@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -956,4 +956,39 @@ test('senaryo: sonuç bildirimi bir kez yazılır; eklenti yeniden yüklenince (
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)   // sıcak yeniden yükleme
   await new Promise(r => setTimeout(r, 150))
   expect(say()).toBe(1)
+})
+
+test('tasarım: /design ve /ekip aynı mesajda olmaz — tasarım işi ekibe verilir; Skill+Artifact yalnız tasarım üyesine', () => {
+  expect(tasarimMi('ekran bağlama şemasını yeniden tasarla')).toBe(true)
+  expect(tasarimMi('SVG simge seti ve arayüz yerleşimi')).toBe(true)
+  expect(tasarimMi('physics.py sıcaklık limiti hatasını düzelt')).toBe(false)
+  const plan = planDogrula({ ad: 'E', amac: 'a', uyeler: [
+    { ad: 'tasarimci', model: 'opus', araclar: ['Read', 'Write', 'Skill', 'Artifact'], gorev: 'ekran şemasını tasarla', talimat: 'design:design-critique becerisini çağır' },
+    { ad: 'duzeltici', model: 'sonnet', araclar: ['Read', 'Edit', 'Skill', 'Artifact'], gorev: 'physics.py limitini düzelt', talimat: 'hesabı düzelt' },
+  ] }) as any
+  expect(plan.uyeler[0].tools).toEqual(['Read', 'Write', 'Skill', 'Artifact'])
+  expect(plan.uyeler[1].tools).toEqual(['Read', 'Edit'])            // tasarım olmayan üyeden Skill/Artifact düşer
+  const r = (ROLLER as any).tasarimci
+  expect(r.tools).toEqual(expect.arrayContaining(['Skill', 'Artifact', 'Write']))
+  expect(r.prompt).toMatch(/design:design-critique[\s\S]*design:design-system[\s\S]*design:ux-copy[\s\S]*design:accessibility-review/)
+  expect(r.prompt).toMatch(/Windows teması AÇIK/)
+  expect((SABLON_EKIPLER as any[]).find(x => x.ad === 'Tasarım ekibi').uyeler).toContain('tasarimci')
+})
+
+test('senaryo: tasarım isteği — Fable\'a TASARIM İŞİ ipucu gider, tasarım üyesi Skill ile başlar', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    istemler.push(String(e.prompt))
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Tasarım Turu', amac: 'şema', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Read', 'Write', 'Skill', 'Artifact'], gorev: 'ekran bağlama şemasını tasarla', bitis_olcutu: 'svg' }] }) } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model ?? 'claude-opus-5-5', agentId: 'a1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'ekran bağlama simülatörünün şemasını tasarla', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 200))
+  expect(istemler[0]).toMatch(/TASARIM İŞİ[\s\S]*design:design-critique/)
+  expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:tasarimci'])
+  expect(logs.join('\n')).toMatch(/Ekip kuruldu — Tasarım Turu[\s\S]*tasarimci/)
 })
