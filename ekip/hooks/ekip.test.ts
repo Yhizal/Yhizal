@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
@@ -822,11 +822,12 @@ test('sonuç metni: rapor, işçi satırları (özet + yapılan işler) ve son k
     { id: 'b', tip: 'ekip:model-izci', model: 'claude-haiku-5-5', durum: 'bitti', baslangic: now - 9000, bitis: now },
     { id: 'c', tip: 'ekip:test-yazici', model: 'claude-sonnet-5-5', durum: 'hata', baslangic: now - 60_000, bitis: now },
   ] as any, karar: { durum: 'ret', neden: 'test eksik' } })
-  expect(m).toMatch(/^Hedef tamam\./)
+  expect(m).toMatch(/^Son durum: ✖ RET — test eksik/)          // en üstte son durum
+  expect(m).toMatch(/Danışman raporu:\nHedef tamam\./)
   expect(m).toMatch(/✓ hafif-isci \(hafif, 0:40\) — envanter çıktı · 9 dosya okudu · 2 arama/)
   expect(m).toMatch(/✕ test-yazici/)
   expect(m).not.toMatch(/model-izci/)
-  expect(m).toMatch(/Son kontrol: ✖ RET — test eksik/)
+
 })
 
 test('sessiz ajan: 8 dk adım atmayan çalışan koşu uyarılır; etkinlik varsa ya da yeni yüklendiyse uyarılmaz', () => {
@@ -887,7 +888,7 @@ test('senaryo: iş bitti — ara rapor ve son sonuç ana sohbete yazılır, ana 
   expect(hepsi).toMatch(/Ara rapor\nhizli-isci modülü okudu/)
   const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
   expect(sonuc).toMatch(/✓ hizli-isci \(hızlı, \d+:\d+\) — 3 dosya okundu/)   // işçi satırı: özet + süre
-  expect(sonuc).toMatch(/Son kontrol: ✔ ONAY/)
+  expect(sonuc).toMatch(/Son durum: ✔ ONAY/)
   expect(notlar.some(x => /veri, talimat değil/.test(x) && /Ekip sonucu —/.test(x))).toBe(true)   // ana model de bilir
 })
 
@@ -903,7 +904,7 @@ test('senaryo: son kontrol RET — kontrol notu da sohbete düşer', async ($, o
   await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: bitti', durationMs: 3000, isAborted: false, turnId: 't', reason: 'answer' } as never)
   await new Promise(r => setTimeout(r, 300))
   const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
-  expect(sonuc).toMatch(/Son kontrol: ✖ RET — testler eklenmemiş/)
+  expect(sonuc).toMatch(/Son durum: ✖ RET — testler eklenmemiş/)
   expect(sonuc).toMatch(/Kontrol notu:[\s\S]*test \| eksik/)
 })
 
@@ -991,4 +992,48 @@ test('senaryo: tasarım isteği — Fable\'a TASARIM İŞİ ipucu gider, tasarı
   expect(istemler[0]).toMatch(/TASARIM İŞİ[\s\S]*design:design-critique/)
   expect(spawned.map(x => x.subagent_type)).toEqual(['ekip:tasarimci'])
   expect(logs.join('\n')).toMatch(/Ekip kuruldu — Tasarım Turu[\s\S]*tasarimci/)
+})
+
+// ── İstek maddeleri: her iş yapılır ya da gerekçelenir; ön koşul; net son rapor ve "/ekip devam" ──
+test('plan: istek maddeleri üyelere atanır, atanmayan gerekçeyle kapsam dışı; göreve madde listesi ve ön koşul eklenir', () => {
+  const plan = planDogrula({ ad: 'E', amac: 'a',
+    maddeler: [{ no: 1, metin: 'CB ekran akımı sıfır hatası' }, { no: 2, metin: 'donut grafik' }, { no: 3, metin: 'yazı tipi büyüt' }, { no: 4, metin: 'harita sayfası' }],
+    kapsam_disi: [{ no: 3, gerekce: 'tasarım onayı bekleniyor' }],
+    uyeler: [
+      { ad: 'cekirdek', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'CB hesabını düzelt', maddeler: [1], on_kosul: 'hatayı önce yeniden üret' },
+      { ad: 'grafik', model: 'sonnet', araclar: ['Read', 'Edit'], gorev: 'donut ekle', maddeler: [2, 99] },
+    ] }) as any
+  expect(plan.uyeler[0].gorev).toMatch(/Ön koşul \(önce bunu kontrol et\): hatayı önce yeniden üret/)
+  expect(plan.uyeler[0].gorev).toMatch(/İSTEK MADDELERİ[\s\S]*#1 CB ekran akımı sıfır hatası/)
+  expect(plan.uyeler[1].maddeler).toEqual([2])                              // geçersiz madde no düşer
+  expect(plan.maddeler.map((m: any) => [m.no, m.durum, m.gerekce ?? ''])).toEqual([
+    [1, 'atandi', ''], [2, 'atandi', ''], [3, 'kapsam_disi', 'tasarım onayı bekleniyor'], [4, 'kapsam_disi', 'plan gerekçesiz bıraktı']])   // açıkta madde kalmaz
+  expect(Object.keys(plan.uyeler[0])).toContain('maddeler')
+})
+
+test('madde akışı: işçi MADDE satırları + danışman değerlendirmesi → son durum; kesik JSON fark edilir', () => {
+  const cikti = 'ÖZET: tamam\nMADDE #1: YAPILDI — physics.py:120 düzeltildi, 12 test geçti\nMADDE #2: YAPILMADI — GEREKEN: faz dengesizliği verisi yok'
+  expect(maddeSatirlari(cikti)).toEqual([{ no: 1, durum: 'yapildi', not: 'physics.py:120 düzeltildi, 12 test geçti' }, { no: 2, durum: 'yapilmadi', not: 'GEREKEN: faz dengesizliği verisi yok' }])
+  const plan = [{ no: 1, metin: 'a', durum: 'atandi' }, { no: 2, metin: 'b', durum: 'atandi' }, { no: 3, metin: 'c', durum: 'atandi' }]
+  const k = [{ tip: 'ekip:x', cikti, maddeRapor: maddeSatirlari(cikti) }]
+  const m = maddeleriBirlestir(plan, k, [{ no: 2, durum: 'kısmen', not: 'veri eklendi, grafik bekliyor' }])
+  expect(m.map((x: any) => [x.no, x.durum])).toEqual([[1, 'yapildi'], [2, 'kismen'], [3, 'atandi']])
+  expect(maddeListesi(m)).toBe('✓ #1 a — physics.py:120 düzeltildi, 12 test geçti\n◐ #2 b — veri eklendi, grafik bekliyor\n… #3 c — işçi raporlamadı')
+  expect(acikMaddeler(m).map((x: any) => x.no)).toEqual([2, 3])
+  expect(kesikMi('{"ad":"E","uyeler":[{"ad":"x","gorev":"uzun...')).toBe(true)
+  expect(kesikMi('{"ad":"E"}')).toBe(false)
+})
+
+test('son rapor: son durum + madde özeti en üstte, sonra maddeler, senden beklenenler ve "/ekip devam" adımı', () => {
+  const maddeler = [{ no: 1, metin: 'hata', durum: 'yapildi', not: 'test geçti' }, { no: 2, metin: 'donut', durum: 'yapilmadi', not: 'GEREKEN: veri' }, { no: 3, metin: 'font', durum: 'kapsam_disi', gerekce: 'onay bekliyor' }]
+  const m = sonucMetni({ karar: { durum: 'ret', neden: 'donut yok' }, maddeler, kullanicidan: ['Donut için matplotlib mi QPainter mı?'], kosular: [] } as any)
+  expect(m.split('\n')[0]).toBe('Son durum: ✖ RET — donut yok · 1/3 madde yapıldı, 1 yapılmadı, 1 kapsam dışı')
+  expect(m).toMatch(/İstek maddeleri:\n✓ #1 hata — test geçti\n✕ #2 donut — GEREKEN: veri\n– #3 font — onay bekliyor/)
+  expect(m).toMatch(/Senden beklenenler:\n• Donut için matplotlib mi QPainter mı\?/)
+  expect(m).toMatch(/Sonraki adım: "\/ekip devam" yaz — açık 2 madde için yeni tur başlar; cevaplarını devam'ın arkasına yazabilirsin\./)
+  const h = devamHedefi({ baslik: 'Faz', hedef: 'ekranı düzelt', maddeler: maddeler.slice(1), kullanicidan: ['Donut için matplotlib mi QPainter mı?'], ret: 'donut yok' }, 'QPainter kullan')
+  expect(h).toMatch(/"Faz" işinin devamı \(asıl hedef: ekranı düzelt\)/)
+  expect(h).toMatch(/✕ #2 donut — GEREKEN: veri/)
+  expect(h).toMatch(/Son kontrol RET nedeni: donut yok/)
+  expect(h).toMatch(/Kullanıcının yanıtı \/ ek isteği: QPainter kullan/)
 })
