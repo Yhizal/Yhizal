@@ -1070,7 +1070,8 @@ test('karar ilkesi: plan, değerlendirme, son kontrol ve işçi talimatı kullan
   expect(ISCI_FORMAT).toMatch(/"tercihe aykırı" diye iş reddetme/)
   expect(String(KADEME_EK['claude-sonnet-5-5'] ?? Object.values(KADEME_EK)[1])).toMatch(/kullanıcıya sorulmaz/)
   expect(sonKontrolPrompt({ baslik: 'x', kosular: [], maddeler: [] } as any)).toMatch(/karar ekipte; yapılmalı/)
-  expect((ROLLER as any).tasarimci.prompt).toMatch(/QPainter\/kodla parametrik çizim\) onu uygula/)
+  expect((ROLLER as any).tasarimci.prompt).toMatch(/QPainter\/kodla parametrik çizim, SVG varlık\) onu uygula/)
+  expect((ROLLER as any).tasarimci.prompt).not.toMatch(/Kodla anlık çizim yerine/)
 })
 
 test('otomatik devam: yapılabilir açık madde varsa yeni tur; dış engel, plan modu, kritik bütçe ve zincir sınırında durur', () => {
