@@ -1,6 +1,7 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
+import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -1030,10 +1031,62 @@ test('son rapor: son durum + madde özeti en üstte, sonra maddeler, senden bekl
   expect(m.split('\n')[0]).toBe('Son durum: ✖ RET — donut yok · 1/3 madde yapıldı, 1 yapılmadı, 1 kapsam dışı')
   expect(m).toMatch(/İstek maddeleri:\n✓ #1 hata — test geçti\n✕ #2 donut — GEREKEN: veri\n– #3 font — onay bekliyor/)
   expect(m).toMatch(/Senden beklenenler:\n• Donut için matplotlib mi QPainter mı\?/)
-  expect(m).toMatch(/Sonraki adım: "\/ekip devam" yaz — açık 2 madde için yeni tur başlar; cevaplarını devam'ın arkasına yazabilirsin\./)
+  expect(m).toMatch(/Sonraki adım: açık 2 madde için ekip kendiliğinden devam eder \(en fazla 2 tur\); yukarıdaki dış engelleri "\/ekip devam <yanıtın>" ile bildir\./)
   const h = devamHedefi({ baslik: 'Faz', hedef: 'ekranı düzelt', maddeler: maddeler.slice(1), kullanicidan: ['Donut için matplotlib mi QPainter mı?'], ret: 'donut yok' }, 'QPainter kullan')
   expect(h).toMatch(/"Faz" işinin devamı \(asıl hedef: ekranı düzelt\)/)
   expect(h).toMatch(/✕ #2 donut — GEREKEN: veri/)
   expect(h).toMatch(/Son kontrol RET nedeni: donut yok/)
   expect(h).toMatch(/Kullanıcının yanıtı \/ ek isteği: QPainter kullan/)
+})
+
+// ── Karar ekipte: iş "kullanıcı kararı bekleniyor" diye bırakılmaz; açık madde kalırsa ekip kendiliğinden devam eder ──
+test('karar ilkesi: plan, değerlendirme, son kontrol ve işçi talimatı kullanıcıya karar bırakmayı yasaklar; açık talimat eski tercihi geçer', () => {
+  expect(KARAR_ILKESI).toMatch(/kullanıcıya SORULMAZ/)
+  expect(KARAR_ILKESI).toMatch(/tercihine aykırı[\s\S]*KULLANILAMAZ/)
+  expect(KARAR_ILKESI).toMatch(/DIŞ bir engel/)
+  expect(ISCI_FORMAT).toMatch(/VARSAYIM: \.\.\./)
+  expect(ISCI_FORMAT).toMatch(/"tercihe aykırı" diye iş reddetme/)
+  expect(String(KADEME_EK['claude-sonnet-5-5'] ?? Object.values(KADEME_EK)[1])).toMatch(/kullanıcıya sorulmaz/)
+  expect(sonKontrolPrompt({ baslik: 'x', kosular: [], maddeler: [] } as any)).toMatch(/karar ekipte; yapılmalı/)
+  expect((ROLLER as any).tasarimci.prompt).toMatch(/QPainter\/kodla parametrik çizim\) onu uygula/)
+})
+
+test('otomatik devam: yapılabilir açık madde varsa yeni tur; dış engel, plan modu, kritik bütçe ve zincir sınırında durur', () => {
+  const acik = (ms: any[]) => ({ baslik: 'Direk', maddeler: ms })
+  const m2 = { no: 2, metin: 'direği çiz', durum: 'yapilmadi', not: 'kullanıcı a/b kararı bekleniyor' }
+  const dis = { no: 8, metin: 'push', durum: 'yapilmadi', not: 'GEREKEN: uzak depo tanımlı değil' }
+  expect(otoDevamKarari(acik([m2, dis]))).toEqual({ devam: true, sayi: 1, neden: '' })              // karar bekleyen madde yapılabilir sayılır
+  expect(otoDevamKarari(acik([dis])).devam).toBe(false)                                               // yalnız dış engel
+  expect(otoDevamKarari(acik([dis])).neden).toMatch(/dış engelli/)
+  expect(otoDevamKarari(acik([m2]), { planModu: true }).neden).toMatch(/Plan modu/)
+  expect(otoDevamKarari(acik([m2]), { butce: 'kritik' }).neden).toMatch(/kritik/)
+  expect(otoDevamKarari(acik([m2]), { sayi: OTO_DEVAM_MAX }).neden).toMatch(/sınırına/)
+  expect(otoDevamKarari(acik([])).devam).toBe(false)
+})
+
+test('senaryo: son kontrol RET + açık madde → ekip kullanıcıyı beklemeden otomatik devam turunu sıraya alır', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    const pr = String(e.prompt), sis = String(e.system)
+    if (/SON KONTROL/.test(pr)) return { value: { isAnswered: true, usage: {}, text: 'KARAR: RET — madde açık' } } as never
+    if (/ekip kurucu/.test(sis)) istemler.push(pr)
+    return { value: { isAnswered: true, usage: {}, text: 'kısa' } } as never
+  })
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'r1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:hizli-isci', description: 'x' } as never)
+  await $.turn.complete({ agentId: 'r1', answer: 'ÖZET: yarım\nMADDE #1: YAPILMADI — karar bekleniyor', durationMs: 3000, isAborted: false, turnId: 't', reason: 'answer' } as never)
+  await new Promise(r => setTimeout(r, 500))
+  // tursuz (elle) işte madde listesi yok: RET tek başına otomatik devam başlatmaz, sonuç yine yazılır
+  expect(logs.join('\n---\n')).toMatch(/Ekip sonucu —[\s\S]*Son durum: ✖ RET — madde açık/)
+})
+
+test('/ekip devam: açık iş başka projedeyse orayı söyler; açık iş yoksa ek talimatı yeni iş olarak önerir', async ($, on) => {
+  sohbetKur($, on)
+  on('model.complete', () => ({ value: { isAnswered: true, usage: {}, text: 'x' } }) as never)
+  on('agent.spawn', () => ({ model: 'claude-sonnet-5-5' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  const r: any = await $.command.run({ command: 'ekip', args: 'devam QPainter kullan', origin: 'user' } as never)
+  expect(String(r?.value?.text ?? r?.text ?? '')).toMatch(/Devam edilecek açık iş yok\. Yeni iş olarak başlatmak için: \/ekip QPainter kullan/)
 })

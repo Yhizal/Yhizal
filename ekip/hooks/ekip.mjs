@@ -1,7 +1,7 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
 import { sadeSvg, yuzde5, sureKisa, eylemOzeti } from "./sade.mjs";
-import { KURALLAR, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
+import { KURALLAR, KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -71,7 +71,7 @@ export const ROLLER = {
     rol: "isci", model: ISCI_MODEL, maxTurns: 40, permissionMode: "acceptEdits",
     description: "Görsel/arayüz tasarımı: şema, ekran yerleşimi, SVG varlık, tasarım eleştirisi, tasarım sistemi, UX metni, erişilebilirlik. /design becerilerini kendisi çağırır.",
     prompt: `Tasarım işi yürütürsün. /design komutunu yazamazsın; onun yerine Skill aracıyla design becerilerini çağır: design:design-critique (eleştiri), design:design-system (sistem/bileşen), design:ux-copy (metin), design:accessibility-review (erişilebilirlik), design:design-handoff (geliştirici teslimi). Hangi becerinin uyduğunu görevden seç.
-Yüksek kaliteli çizim gereken işte (şema, ekran, simge) önce tasarımı çıkar: SVG varlık dosyası (Write) ve gerekirse Artifact aracıyla özel bir tasarım sayfası. Kodla anlık çizim yerine tasarlanmış varlık üret; uygulamaya girecek biçimi (SVG) görevde belirtilen dizine yaz. Kullanıcının Windows teması AÇIK: yalnız açık tema; sade, ferah, okunur yaz; "yapay zekâ işi" kart/rozet görünümünden ve kırpışan animasyondan kaçın.
+Kullanıcı istekte yöntemi belirttiyse (ör. QPainter/kodla parametrik çizim) onu uygula, eski tercih notlarını gerekçe yapıp reddetme. Belirtmediyse yüksek kaliteli çizim gereken işte (şema, ekran, simge) önce tasarımı çıkar: SVG varlık dosyası (Write) ve gerekirse Artifact aracıyla özel bir tasarım sayfası. Kodla anlık çizim yerine tasarlanmış varlık üret; uygulamaya girecek biçimi (SVG) görevde belirtilen dizine yaz. Kullanıcının Windows teması AÇIK: yalnız açık tema; sade, ferah, okunur yaz; "yapay zekâ işi" kart/rozet görünümünden ve kırpışan animasyondan kaçın.
 Mevcut kod dosyasında yalnız değişen bloğu düzenle. Çıktında ürettiğin dosya yollarını ve kullandığın becerileri listele. Türkçe özetle.`,
     tools: ["Read", "Grep", "Glob", "Edit", "Write", "Bash", "WebFetch", "Skill", "Artifact"],
   },
@@ -361,6 +361,17 @@ const MADDE_ISARET = { yapildi: "✓", kismen: "◐", yapilmadi: "✕", kapsam_d
 /** Madde listesi düz metin (saf): "✓ #1 metin — not". */
 export const maddeListesi = ms => (ms ?? []).map(m => `${MADDE_ISARET[m.durum] ?? "…"} #${m.no} ${m.metin}${m.durum === "atandi" ? " — işçi raporlamadı" : m.not || m.gerekce ? ` — ${m.not || m.gerekce}` : ""}`).join("\n");
 export const acikMaddeler = ms => (ms ?? []).filter(m => m.durum !== "yapildi");
+export const OTO_DEVAM_MAX = 2;
+const DIS_ENGEL = /parola|şifre|sifre|erişim yok|erisim yok|yetki|credential|fiziksel ölçüm|ölçüm cihaz|uzak depo|remote|donanım|donanim|hardware|lisans/i;
+/** Son kontrolden sonra kendiliğinden devam turu açılır mı (saf)? Dış engelli maddeler sayılmaz; kritik bütçe, plan modu ve zincir sınırında durur. */
+export function otoDevamKarari(acikIs, { sayi = 0, butce = "normal", planModu: pm = false } = {}) {
+  const yapilabilir = (acikIs?.maddeler ?? []).filter(m => !DIS_ENGEL.test(`${m.not ?? ""} ${m.gerekce ?? ""}`));
+  if (!yapilabilir.length) return { devam: false, sayi: 0, neden: acikIs?.maddeler?.length ? "Kalan maddeler dış engelli (erişim/donanım/uzak depo gibi); ekip sağlayamıyor." : "" };
+  if (pm) return { devam: false, sayi: yapilabilir.length, neden: "Plan modundasın: ekip dosya değiştiremez." };
+  if (butce === "kritik") return { devam: false, sayi: yapilabilir.length, neden: "Kota kritik seviyede: otomatik devam ertelendi." };
+  if (sayi >= OTO_DEVAM_MAX) return { devam: false, sayi: yapilabilir.length, neden: `Otomatik devam sınırına (${OTO_DEVAM_MAX}) ulaşıldı.` };
+  return { devam: true, sayi: yapilabilir.length, neden: "" };
+}
 /** "/ekip devam [yanıt]" için yeni hedef metni (saf): açık maddeler, RET nedeni, sorular ve kullanıcının yanıtı. */
 export function devamHedefi(acik, ek = "") {
   return [
@@ -521,12 +532,14 @@ async function sor($, soru) {
     : { soru, cevap: `Cevap alınamadı: ${r.reason}`, durum: "hata" });
 }
 
-const KULLANICI = "Kullanıcı EMELEC AR-GE'de; donanım (STM32/HAL, Altium, ThingsBoard) ve AR-GE Takip Platformu (FastAPI + React, SharePoint köprüsü) üzerinde çalışır. Türkçe, kısa ve tablolu rapor ister; ekibe müdahale etmek istemez — kararları sen (Fable) ver. Token tasarrufu ve diff disiplini önemli.";
+const KULLANICI = "Kullanıcı EMELEC AR-GE'de; donanım (STM32/HAL, Altium, ThingsBoard) ve AR-GE Takip Platformu (FastAPI + React, SharePoint köprüsü) üzerinde çalışır. Türkçe, kısa ve tablolu rapor ister; ekibe müdahale etmek istemez — kararları sen (Fable) ver, ona soru bırakıp işi bekletme; istekte açıkça yazdığı her şey eski tercihlerden önce gelir. Token tasarrufu ve diff disiplini önemli.";
 const KUR_SISTEM = `Sen ekip kurucu danışmansın. Kullanıcının hedefine göre en fazla ${MAX_UYE} işçi ajanlı bir ekip tasarla, işi kurallara göre çekirdek (Opus) + hızlı (Sonnet) parçalara böl ve her üyeye ilk somut görevini ata. ${KULLANICI}
 
 ${KURALLAR}
 
-İstek maddeleri (zorunlu): kullanıcının isteğini numaralı kısa maddelere böl (en fazla 15, her biri ≤90 karakter). Her maddeyi bir üyeye ata (üyenin "maddeler" alanı) ya da "kapsam_disi"na somut gerekçesiyle yaz; hiçbir madde açıkta kalmasın, "yapamadık" gerekçesiz olmasın.
+${KARAR_ILKESI}
+
+İstek maddeleri (zorunlu): kullanıcının isteğini numaralı kısa maddelere böl (en fazla 15, her biri ≤90 karakter). Her maddeyi bir üyeye ata (üyenin "maddeler" alanı). "kapsam_disi" yalnız kullanıcının açıkça hariç tuttuğu ya da DIŞ engelli (karar ilkesi madde 3) maddeler içindir; seçim/karar gerektiren maddeyi kapsam dışı bırakma — seçimi sen yap, varsayımı göreve yaz.
 Ön koşul (zorunlu): her üyeye "on_kosul" yaz — işe başlamadan neyin var olduğunu kontrol edeceği (dosya, fonksiyon, veri, çalıştırma/yeniden üretme) ve yoksa ne yapacağı. Bir üyenin işi başka üyenin değişikliğine dayanıyorsa "bagimli" ver.
 Kısa yaz: talimat ≤400, gorev ≤600 karakter; JSON yarıda kesilmesin.
 
@@ -537,8 +550,10 @@ const DEGER_SISTEM = `Sen ekibin danışmanısın. İşçilerin bu turdaki çık
 ${KURALLAR}
 
 "degerlendirme" alanı: iş yoğunsa §4'teki yoğun rapor (Sonuç, Karşılaştırma tablosu, Bulgular, Açık uçlar; üye tablosunu YAZMA, telemetriden eklenir), basitse ≤5 satır düz metin. Son satır: "Karar: devam|bitir — <tek satır gerekçe>".
-İstek maddeleri: her maddenin durumunu işçilerin "MADDE #n" satırlarına ve kanıta göre ver. Yapılmamış ya da kısmen kalan her madde için ya "sonraki" ile yeni görev ata (ön koşul eksikse önce ön koşulu çözen görevi) ya da "not"ta somut gerekçe yaz. İşçi "dokunmadım/yapmadım" dediyse ön koşula bakıp bakmadığını sorgula; bakmadıysa yeniden ata. Kullanıcının karar ya da bilgi vermesi gereken her şeyi "kullanicidan"a tek satırlık soru olarak yaz. "bitti": true yalnız tüm maddeler yapıldıysa ya da kalanlar gerekçeliyse.
-Yalnız JSON döndür: {"degerlendirme":"markdown","bitti":true|false,"yogunluk":"basit|yogun","sonraki":[{"uye":"üye adı","model":"opus|sonnet","gorev":"somut görev","bitis_olcutu":"..."}],"maddeler":[{"no":1,"durum":"yapildi|kismen|yapilmadi","not":"kanıt ya da gerekçe"}],"kullanicidan":["kullanıcıya soru/karar"]}`;
+${KARAR_ILKESI}
+
+İstek maddeleri: her maddenin durumunu işçilerin "MADDE #n" satırlarına ve kanıta göre ver. Yapılmamış ya da kısmen kalan her madde için "sonraki" ile yeni görev ata (ön koşul eksikse önce ön koşulu çözen görevi; işçi "KARAR GEREKİR" dediyse kararı SEN ver ve görevi buna göre yaz). Bir maddeyi açık bırakmanın tek geçerli nedeni DIŞ engeldir (karar ilkesi 3); "kullanıcı kararı bekleniyor" geçerli neden değildir. İşçi "dokunmadım/yapmadım" dediyse ön koşula bakıp bakmadığını sorgula; bakmadıysa yeniden ata. "kullanicidan" yalnız DIŞ engeller içindir (ör. "uzak depo adresi nedir?"); tasarım/teknik seçim sorusu YAZMA. "bitti": true yalnız tüm maddeler yapıldıysa ya da kalanlar DIŞ engelliyse; tur sınırı yüzünden kalan iş varsa "bitti": false ve "sonraki" dolu olsun.
+Yalnız JSON döndür: {"degerlendirme":"markdown","bitti":true|false,"yogunluk":"basit|yogun","sonraki":[{"uye":"üye adı","model":"opus|sonnet","gorev":"somut görev","bitis_olcutu":"..."}],"maddeler":[{"no":1,"durum":"yapildi|kismen|yapilmadi","not":"kanıt ya da gerekçe"}],"kullanicidan":["yalnız DIŞ engel sorusu"]}`;
 const BRIF_SISTEM = `Sen ekibin danışmanısın; iş sürerken ara brif kararı veriyorsun (§5). Tetikleyici gerçekten yönü etkilemiyorsa brif verme: {"brif":false}. Verirsen tek üyeye, ≤6 satırlık içerikle. ${KULLANICI}
 
 ${KURALLAR}
@@ -589,7 +604,7 @@ export function sonucMetni({ rapor, kosular, karar, maddeler, kullanicidan }) {
   if (ms.length) parcalar.push(`İstek maddeleri:\n${maddeListesi(ms)}`);
   if (kullanicidan?.length) parcalar.push(`Senden beklenenler:\n${kullanicidan.map(x => `• ${x}`).join("\n")}`);
   const acik = acikMaddeler(ms).length;
-  if (acik || kullanicidan?.length) parcalar.push(`Sonraki adım: "/ekip devam" yaz${acik ? ` — açık ${acik} madde için yeni tur başlar` : ""}${kullanicidan?.length ? "; cevaplarını devam'ın arkasına yazabilirsin" : ""}.`);
+  if (acik || kullanicidan?.length) parcalar.push(`Sonraki adım: ${acik ? `açık ${acik} madde için ekip kendiliğinden devam eder (en fazla ${OTO_DEVAM_MAX} tur)` : "ekip bekliyor"}${kullanicidan?.length ? "; yukarıdaki dış engelleri \"/ekip devam <yanıtın>\" ile bildir" : "; ek talimat için \"/ekip devam <talimat>\""}.`);
   const isler = (kosular ?? []).filter(x => x.tip !== `${P}:model-izci`).slice(-8);
   if (isler.length) parcalar.push(`Ekip:\n${isler.map(satir).join("\n")}`);
   if (rapor) parcalar.push(`Danışman raporu:\n${String(rapor).trim().slice(0, 700)}`);
@@ -1003,6 +1018,7 @@ export const kararOku = t => { const m = String(t ?? "").match(/KARAR:\s*(ONAY|R
 export function sonKontrolPrompt({ baslik, rapor, kosular, yogun, maddeler }) {
   const ciktilar = kosular.slice(-8).map(x => `### ${x.tip.slice(P.length + 1)} (${kademe(x.model)}, ${x.durum}) — ${x.aciklama}\n${tek(x.cikti, 1500)}`).join("\n\n");
   return `SON KONTROL — ${baslik}. Ekibin işi bitti; son kontrol sende (kurallar §7).\n` +
+    "Kullanıcı kararları ekibe bıraktı: 'kullanıcı kararı bekleniyor' ya da 'tercihe aykırı' diye bırakılmış madde varsa RET ver ve nedenine 'karar ekipte; yapılmalı' yaz. Kullanıcının istekte açıkça yazdığı yöntem eski tercihlerden önce gelir.\n" +
     "İşçilerin iddia ettiği değişiklikleri dosyalardan doğrula (Read/Grep): bitiş ölçütü sağlandı mı, diff disiplini korunmuş mu, gözden kaçan risk var mı. Yeni iş başlatma, kod yazma.\n" +
     (yogun ? "Biçim (≤20 satır): | Kontrol | Sonuç | Kanıt (dosya:satır) | tablosu, sonra en fazla 3 madde.\n" : "Biçim: en fazla 5 satır.\n") +
     'Son satır zorunlu: "KARAR: ONAY" ya da "KARAR: RET — <tek cümle neden>".\n\n' +
@@ -1041,8 +1057,21 @@ async function sonKontrolBitti($, baslik, metin, basarili, ek = {}) {
   const govde = (sonucMetni({ rapor: kapsam?.rapor, kosular: isler, karar: k, maddeler, kullanicidan }) || tek(metin, 600)) + (k.durum === "onay" ? "" : `\n\nKontrol notu:\n${String(metin).trim().slice(0, 600)}`);
   await $.store.set("sonBildirim", Date.now());
   // "/ekip devam" için: açık maddeler ve kullanıcıdan beklenenler saklanır.
-  await $.store.set("acikIs", { baslik, hedef: sonKapsam?.hedef ?? "", maddeler: acikMaddeler(maddeler), kullanicidan, ret: k.durum === "ret" ? k.neden : "", zaman: Date.now() });
+  const acikIs = { baslik, hedef: sonKapsam?.hedef ?? "", maddeler: acikMaddeler(maddeler), kullanicidan, ret: k.durum === "ret" ? k.neden : "", zaman: Date.now(), proje: projeKlasoru };
+  await $.store.set(`acikIs:${projeKlasoru}`, acikIs);
+  await $.store.set("acikIsSon", { proje: projeKlasoru, baslik, acik: acikIs.maddeler.length });
   await sohbeteYaz($, `Ekip sonucu — ${baslik}`, govde, { modele: true });
+  // Otomatik devam: açık madde kaldıysa (dış engelliler hariç) kullanıcıyı beklemeden yeni tur; zincir başına en fazla OTO_DEVAM_MAX.
+  const { value: bd = null } = await $.state.get(BUTCE);
+  const n = Number((await $.store.get(`otoDevam:${projeKlasoru}`)) ?? 0);
+  const karar = otoDevamKarari(acikIs, { sayi: n, butce: bd?.seviye, planModu });
+  if (karar.devam) {
+    await $.store.set(`otoDevam:${projeKlasoru}`, n + 1);
+    await $.store.set(`acikIs:${projeKlasoru}`, null);
+    const hedef = devamHedefi(acikIs, "");
+    kuyrugaEkle(hedef, () => kurVeBekle($, hedef), () => denetle($, true), m => sekansRaporu($, m));
+    await sohbeteYaz($, `↻ Otomatik devam (${n + 1}/${OTO_DEVAM_MAX}) — ${baslik}`, `Açık ${karar.sayi} madde için yeni tur başlatıldı; kararlar ekipte. Sonuç burada yazılır.`);
+  } else if (karar.neden) await sohbeteYaz($, `Otomatik devam yapılmadı — ${baslik}`, `${karar.neden}${acikIs.maddeler.length ? `\nElle sürdürmek için: /ekip devam [ek talimat]` : ""}`);
 }
 
 // ── Denetmen: tek komut ya da tek koda değil bütüne bakar. Tamamlanan işleri, bekleyen istekleri,
@@ -1422,16 +1451,25 @@ export function register(on) {
     }
     // Devam: son işin açık maddeleri (ve kullanıcının yanıtı) yeni bir tur olarak sıraya girer.
     if (/^devam\b/i.test(args)) {
-      const acik = await $.store.get("acikIs");
+      // Açık iş bu projeye bağlıdır (eski sürümün tek anahtarı da okunur); başka projenin işi burada sürdürülmez.
+      const acik = (await $.store.get(`acikIs:${projeKlasoru}`)) ?? (await $.store.get("acikIs"));
       const ek = args.replace(/^devam\b\s*/i, "");
-      if (!acik || (!acik.maddeler?.length && !acik.kullanicidan?.length && !acik.ret && !ek))
+      if (!acik || (!acik.maddeler?.length && !acik.kullanicidan?.length && !acik.ret && !ek)) {
+        const son = await $.store.get("acikIsSon");
+        if (son?.proje && son.proje !== projeKlasoru && son.acik)
+          return { text: `Bu projede açık ekip işi yok. "${son.baslik}" işinin ${son.acik} açık maddesi ${son.proje} projesinde; /ekip devam'ı o projenin oturumunda yaz.` };
+        if (ek) return { text: "Devam edilecek açık iş yok. Yeni iş olarak başlatmak için: /ekip " + ek };
         return { text: "Devam edilecek açık madde yok; son ekip işi tamamlanmış görünüyor. Yeni iş için /ekip <istek> yaz." };
+      }
       const hedef = devamHedefi(acik, ek);
       const sira = kuyrugaEkle(hedef, () => kurVeBekle($, hedef), () => denetle($, true), m => sekansRaporu($, m));
+      await $.store.set(`acikIs:${projeKlasoru}`, null);
       await $.store.set("acikIs", null);
+      await $.store.set(`otoDevam:${projeKlasoru}`, 0); // kullanıcı elle sürdürdü: otomatik devam sayacı sıfırlanır
       return { text: `"${acik.baslik}" için devam turu sıraya alındı: ${acik.maddeler?.length ?? 0} açık madde${ek ? " + yanıtın" : ""}${sira ? ` (önünde ${sira} iş)` : ""}. Sonuç burada yazılır.` };
     }
     if (args) {
+      await $.store.set(`otoDevam:${projeKlasoru}`, 0); // yeni istek: otomatik devam zinciri sıfırdan
       const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($, true), m => sekansRaporu($, m));
       $.ui.toast(planModu ? "◆ Plan modundasın: ekip yalnız okuyup öneri raporlar, dosya değiştirmez" : sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
       const planUyari = planModu ? "\n⚠ Plan modundasın: ajanlar dosya değiştiremez; ekip salt-okur analiz yapıp önerileri raporlar. Uygulatmak için Shift+Tab ile plan modundan çık ve /ekip'i yeniden çalıştır." : "";
