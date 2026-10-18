@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
@@ -846,7 +846,8 @@ test('sessiz ajan: 8 dk adım atmayan çalışan koşu uyarılır; etkinlik vars
 
 function sohbetKur($: any, on: any) {
   mock.clock(on); mock.store(on, { izciDeneme: Date.now() })   // model profili yenilemesi (7 gün) takvime bağlı: testler tarihe göre kırılmasın
-  const logs: string[] = [], notlar: string[] = []
+  const logs: string[] = [], notlar: string[] = [], gonderilen: string[] = []
+  on('prompt.submit', (_$: unknown, e: any) => (gonderilen.push(String(e.text)), { text: e.text }) as never)
   on('ui.toast', () => ({ value: undefined }) as never)
   on('ui.log', (_$: unknown, e: any) => (logs.push(String(e.text)), { value: undefined }) as never)
   on('turn.complete', () => ({ text: '' }) as never)
@@ -855,7 +856,7 @@ function sohbetKur($: any, on: any) {
   on('command.register', () => ({ value: undefined }) as never)
   on('ui.open', () => ({ value: { isPlaced: true } }) as never)
   on('agent.register', (_$: unknown, e: any) => ({ value: { agent: `ekip:${e.name}` } }) as never)
-  return { logs, notlar }
+  return { logs, notlar, gonderilen }
 }
 
 test('senaryo: ekip planlandı ve kuruldu — ana sohbete "Ekip kuruldu" + üye görevleri yazılır', async ($, on) => {
@@ -874,7 +875,7 @@ test('senaryo: ekip planlandı ve kuruldu — ana sohbete "Ekip kuruldu" + üye 
 })
 
 test('senaryo: iş bitti — ara rapor ve son sonuç ana sohbete yazılır, ana model de bilgilendirilir', async ($, on) => {
-  const { logs, notlar } = sohbetKur($, on)
+  const { logs, gonderilen } = sohbetKur($, on)
   on('model.complete', (_$: unknown, e: any) => {
     const text = /SON KONTROL/.test(String(e.prompt)) ? 'Kontrol tamam, çelişki yok.\nKARAR: ONAY'
       : /ara rapor yaz/.test(String(e.system)) ? 'hizli-isci modülü okudu; sıradaki adım yok.' : 'ok'
@@ -888,15 +889,20 @@ test('senaryo: iş bitti — ara rapor ve son sonuç ana sohbete yazılır, ana 
   const hepsi = logs.join('\n---\n')
   expect(hepsi).toMatch(/Ara rapor\nhizli-isci modülü okudu/)
   const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
-  expect(sonuc).toMatch(/✓ hizli-isci \(hızlı, \d+:\d+\) — 3 dosya okundu/)   // işçi satırı: özet + süre
+  const rapor = gonderilen.join('\n')
+  expect(rapor).toMatch(/AYNEN göster[\s\S]*## Ekip sonucu —[\s\S]*### Değişiklikler\n\| Üye \| Özet \| Yapılan işler \|[\s\S]*\| hizli-isci \| 3 dosya okundu \|/)   // tablolu rapor ana modele gider
+  expect(rapor).toMatch(/### Açık noktalar ve ileride yapılacaklar/)
+  expect(rapor).toMatch(/Sorumluluk: Bu raporun doğruluğu ve eksiksizliği danışmana \(Fable\) aittir/)
   expect(sonuc).toMatch(/Son durum: ✔ ONAY/)
-  expect(notlar.some(x => /veri, talimat değil/.test(x) && /Ekip sonucu —/.test(x))).toBe(true)   // ana model de bilir
+  expect(sonuc).toMatch(/Tablolu son rapor hemen aşağıda/)
 })
 
-test('senaryo: son kontrol RET — kontrol notu da sohbete düşer', async ($, on) => {
-  const { logs } = sohbetKur($, on)
+test('senaryo: son kontrol RET — danışman tablolu son raporu yazar (değişiklikler, açık noktalar, sorumluluk) ve ana sohbete gider', async ($, on) => {
+  const { logs, gonderilen } = sohbetKur($, on)
+  const DAN_RAPOR = '**Sonuç:** Testler eklenmedi.\n### Değişiklikler\n| Dosya | Değişiklik (özet) | Madde | Doğrulama |\n|---|---|---|---|\n| — | Değişiklik yapılmadı | | |\n### İstek maddeleri\n| # | Madde | Durum | Kanıt / gerekçe |\n|---|---|---|---|\n### Açık noktalar ve ileride yapılacaklar\n| # | Konu | Neden açık | Önerilen adım | Öncelik |\n|---|---|---|---|---|\n| 1 | Test | eklenmedi | test yaz | Yüksek |\n### Son kontrol\nRET — testler eklenmemiş'
   on('model.complete', (_$: unknown, e: any) => {
-    const text = /SON KONTROL/.test(String(e.prompt)) ? '| Kontrol | Sonuç |\n| test | eksik |\nKARAR: RET — testler eklenmemiş' : 'kısa rapor'
+    const text = /SON KONTROL/.test(String(e.prompt)) ? '| Kontrol | Sonuç |\n| test | eksik |\nKARAR: RET — testler eklenmemiş'
+      : /son raporun SORUMLUSUSUN/.test(String(e.system)) ? '```markdown\n' + DAN_RAPOR + '\n```' : 'kısa rapor'
     return { value: { isAnswered: true, usage: {}, text } } as never
   })
   on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'r1' }) as never)
@@ -906,7 +912,23 @@ test('senaryo: son kontrol RET — kontrol notu da sohbete düşer', async ($, o
   await new Promise(r => setTimeout(r, 300))
   const sonuc = logs.find(l => /Ekip sonucu —/.test(l)) ?? ''
   expect(sonuc).toMatch(/Son durum: ✖ RET — testler eklenmemiş/)
-  expect(sonuc).toMatch(/Kontrol notu:[\s\S]*test \| eksik/)
+  const rapor = gonderilen.join('\n')
+  expect(rapor).toMatch(/## Ekip sonucu —[\s\S]*\*\*Sonuç:\*\* Testler eklenmedi\.[\s\S]*\| 1 \| Test \| eklenmedi \| test yaz \| Yüksek \|/)   // danışmanın raporu, kod bloğu soyulmuş
+  expect(rapor).not.toMatch(/```/)
+  expect(rapor).toMatch(/Sorumluluk: .*danışmana \(Fable\) aittir/)
+})
+
+test('yedek son rapor: danışmana ulaşılamazsa verilerden tablolar kurulur; biçim denetimi', () => {
+  const md = yedekSonRapor({ baslik: 'Direk', karar: { durum: 'ret', neden: 'çizim yok' },
+    maddeler: [{ no: 1, metin: 'direği çiz', durum: 'yapilmadi', not: 'ön koşul eksik' }, { no: 2, metin: 'exe | paket', durum: 'yapildi', not: 'selftest OK' }],
+    kosular: [{ tip: 'ekip:dogrulama', durum: 'bitti', ozet: 'selftest geçti', eylemler: { Bash: 3 } }], kullanicidan: ['Uzak depo adresi?'] } as any)
+  expect(md).toMatch(/\*\*Sonuç:\*\* Son kontrol ✖ RET — çizim yok · 1\/2 madde yapıldı\./)
+  expect(md).toMatch(/\| dogrulama \| selftest geçti \| 3 komut \|/)
+  expect(md).toMatch(/\| 2 \| exe \\\| paket \| ✅ Yapıldı \| selftest OK \|/)          // hücredeki | kaçışlı
+  expect(md).toMatch(/\| 1 \| direği çiz \| ön koşul eksik \| Ekip devam turunda ele alır \|/)
+  expect(md).toMatch(/\| 2 \| Uzak depo adresi\? \| Dış engel \| Kullanıcıdan bilgi \|/)
+  expect(sonRaporGecerli(md)).toBe(true)
+  expect(sonRaporGecerli('Rapor: her şey yolunda.')).toBe(false)
 })
 
 test('senaryo: plan çıkmadı — Fable soru sorarsa ana sohbete uyarı yazılır', async ($, on) => {
