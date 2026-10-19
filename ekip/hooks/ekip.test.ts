@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
@@ -1112,4 +1112,39 @@ test('/ekip devam: açık iş başka projedeyse orayı söyler; açık iş yoksa
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
   const r: any = await $.command.run({ command: 'ekip', args: 'devam QPainter kullan', origin: 'user' } as never)
   expect(String(r?.value?.text ?? r?.text ?? '')).toMatch(/Devam edilecek açık iş yok\. Yeni iş olarak başlatmak için: \/ekip QPainter kullan/)
+})
+
+// ── Görselli / /design'lı istekler: slash komutu ek taşımaz; ana model "ekibe_ver" aracıyla görsel yollarını verir ──
+test('istek metni: /design tasarım işaretine döner, ekip öneki atılır, görsel yolları REFERANS GÖRSELLER bölümüne yazılır', () => {
+  const h = istekMetni('/ekip 3 FAZ ŞEKLİNDE SİMÜLE ET SİMULASYON EKRANINA UYGUN OLSUN /design KULLAN', ['C:/tmp/images/16.png', 'C:/tmp/images/16.png'])
+  expect(h).toMatch(/^3 FAZ ŞEKLİNDE SİMÜLE ET SİMULASYON EKRANINA UYGUN OLSUN KULLAN/)
+  expect(h.split('\n')[0]).not.toMatch(/\/design|\/ekip/)            // istek metninden belirteçler çıkar
+  expect(h).toMatch(/TASARIM: kullanıcı \/design istedi/)
+  expect(h).toMatch(/REFERANS GÖRSELLER[\s\S]*- C:\/tmp\/images\/16\.png$/)
+  expect(h.match(/16\.png/g)).toHaveLength(1)                      // tekrar eden yol tek
+  expect(tasarimMi(h)).toBe(true)                                     // Fable'a TASARIM İŞİ ipucu gider
+  expect(istekMetni('modülü düzelt')).toBe('modülü düzelt')
+  expect(ekibeMi('ekip: direği 3 faz çiz')).toBe(true)
+  expect(ekibeMi('Ekibe ver, şemayı yenile')).toBe(true)
+  expect(ekibeMi('bunu /ekip ile yap /design kullan')).toBe(true)
+  expect(ekibeMi('ekipman listesini çıkar')).toBe(false)              // "ekipman" ekibe değil
+})
+
+test('senaryo: model ekibe_ver aracını görsel yoluyla çağırır — iş sıraya girer, Fable istemi görseli ve TASARIM ipucunu taşır', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('tool.register', (_$: unknown, e: any) => ({ value: { tool: `mcp__ekip__${e.name}` } }) as never)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    istemler.push(String(e.prompt))
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Direk 3 Faz', amac: 'x', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Read', 'Write', 'Skill'], gorev: 'referans görseli Read ile aç, 3 fazlı direk şeması tasarla', bitis_olcutu: 'svg' }] }) } } as never
+  })
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-opus-5-5', agentId: 'a1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  const r: any = await $.tool.call({ tool: 'mcp__ekip__ekibe_ver', hedef: '3 faz şeklinde simüle et /design kullan', gorseller: ['C:/img/direk.png'] } as never)
+  await new Promise(x => setTimeout(x, 200))
+  expect(JSON.stringify(r)).toMatch(/Ekip işi sıraya aldı/)
+  expect(istemler[0]).toMatch(/REFERANS GÖRSELLER[\s\S]*- C:\/img\/direk\.png/)
+  expect(istemler[0]).toMatch(/TASARIM İŞİ/)
+  expect(logs.join('\n')).toMatch(/Ekip kuruldu — Direk 3 Faz/)
 })

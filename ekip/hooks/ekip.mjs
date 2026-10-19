@@ -283,6 +283,19 @@ export function adTemizle(s) {
     .replace(/[^a-z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 30);
 }
 // Fable'ın JSON planını güvenli bir ekip tanımına çevirir (ad, araç, üye sayısı sınırlı).
+/** Kullanıcı isteğini ekip hedefine çevirir (saf): "/design" belirteci tasarım işareti olur ve metinden çıkar;
+ *  ekli görsellerin dosya yolları REFERANS GÖRSELLER bölümüne yazılır (ajanlar Read ile açar). */
+export function istekMetni(hedef, gorseller = [], tasarim = false) {
+  const ham = String(hedef ?? "");
+  const tasarimIstendi = tasarim || /(^|\s)\/design\b/i.test(ham);
+  const temiz = ham.replace(/(^|\s)\/design\b/gi, " ").replace(/^\s*\/?ekip\b[:,]?\s*/i, "").replace(/\s+/g, " ").trim();
+  const yollar = [...new Set((Array.isArray(gorseller) ? gorseller : []).map(String).map(s => s.trim()).filter(Boolean))].slice(0, 8);
+  return [temiz,
+    tasarimIstendi ? "TASARIM: kullanıcı /design istedi — tasarım üyesi design becerilerini (Skill) kullansın." : "",
+    yollar.length ? `REFERANS GÖRSELLER (tasarım/çekirdek üye Read ile açıp incelesin; işin temel girdisi):\n${yollar.map(y => `- ${y}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+}
+/** Düz mesaj ekibe mi veriliyor (saf)? "ekip: …", "ekibe ver …" ya da metnin içinde "/ekip". */
+export const ekibeMi = t => /^\s*(ekip|ekibe)\b\s*[:,-]?/i.test(String(t ?? "")) || /(^|\s)\/ekip\b/i.test(String(t ?? ""));
 /** Metin tasarım/görsel iş mi (saf)? Tasarım üyesi (Skill + Artifact) ve plan ipucu buna bağlı. */
 export const tasarimMi = t => /tasar[ıi]m|design|şema|sema\b|mockup|wireframe|prototip|\bsvg\b|\bUI\b|\bUX\b|ekran yerleş|görsel|arayüz|simge|ikon|erişilebilir/i.test(String(t ?? ""));
 export function planDogrula(j) {
@@ -1478,6 +1491,15 @@ export function register(on) {
     // Danışmanın gözü: model izcisi her oturumda kayıtlı (ana modelden gizli); profil haftalıktan eskiyse tazelenir.
     try { await $.agent.register(spec("model-izci")); void profilYasliysaYenile($).catch(() => {}); } catch {}
     void bekleyenBildirim($).catch(() => {}); // sıcak yeniden yüklemede: sohbete yazılmamış bitiş sonucu varsa şimdi yaz
+    // Görselli istekler slash komutuyla gönderilemez (komut ek taşımaz): kullanıcı "ekip: …" diye düz yazar, ana model görseli
+    // görür ve dosya yollarıyla bu aracı çağırır; ajanlar görseli Read ile açar.
+    try {
+      await $.tool.register({ name: "ekibe_ver", description: "Kullanıcı bir işi Ajan Ekibi'ne verdiğinde ('ekip: …', 'ekibe ver', mesajda /ekip) çağır: iş Fable'ın planıyla ekip ajanlarına sıralanır, sonuç tablolu raporla sohbete gelir. İşi kendin yapma. Mesajdaki görsellerin dosya yollarını 'gorseller'e ver; /design ya da tasarım istendiyse tasarim: true.",
+        inputSchema: { type: "object", properties: {
+          hedef: { type: "string", description: "kullanıcının isteği, kendi sözleriyle ('ekip' sözcüğü olmadan)" },
+          gorseller: { type: "array", items: { type: "string" }, description: "mesajdaki ekli görsellerin tam dosya yolları" },
+          tasarim: { type: "boolean", description: "tasarım işi / /design istendi" } }, required: ["hedef"] } });
+    } catch {}
     return r;
   });
 
@@ -1538,7 +1560,8 @@ export function register(on) {
     }
     if (args) {
       await $.store.set(`otoDevam:${projeKlasoru}`, 0); // yeni istek: otomatik devam zinciri sıfırdan
-      const sira = kuyrugaEkle(args, () => kurVeBekle($, args), () => denetle($, true), m => sekansRaporu($, m));
+      const hedef = istekMetni(args); // "/design" → tasarım işareti
+      const sira = kuyrugaEkle(hedef, () => kurVeBekle($, hedef), () => denetle($, true), m => sekansRaporu($, m));
       $.ui.toast(planModu ? "◆ Plan modundasın: ekip yalnız okuyup öneri raporlar, dosya değiştirmez" : sira ? `◆ İstek sıraya alındı (önünde ${sira} iş var)` : "◆ İstek alındı, Fable planlıyor");
       const planUyari = planModu ? "\n⚠ Plan modundasın: ajanlar dosya değiştiremez; ekip salt-okur analiz yapıp önerileri raporlar. Uygulatmak için Shift+Tab ile plan modundan çık ve /ekip'i yeniden çalıştır." : "";
       return { text: (sira
@@ -1568,6 +1591,29 @@ export function register(on) {
   on("agent.offer", async ($, e, next) => {
     if (e.agent.startsWith(`${P}:`) && !aktifUyeler.has(e.agent.slice(P.length + 1))) return { isOffered: false };
     return next(e);
+  });
+
+  // Modelin ekibe iş vermesi (görselli istekler dahil).
+  on("tool.call", { tool: "mcp__ekip__ekibe_ver" }, async ($, e) => {
+    const hedef = istekMetni(e.hedef ?? e.input?.hedef, e.gorseller ?? e.input?.gorseller, e.tasarim ?? e.input?.tasarim);
+    if (!hedef.trim()) return { result: "Hedef boş; kullanıcının isteğini 'hedef' alanına yaz." };
+    try { await $.ui.open({ id: PANE, title: "Ajan Ekibi", focus: false, closeOnEscape: true }); panelAcik = true; cark($); } catch {}
+    await $.store.set(`otoDevam:${projeKlasoru}`, 0);
+    const sira = kuyrugaEkle(hedef, () => kurVeBekle($, hedef), () => denetle($, true), m => sekansRaporu($, m));
+    return { result: `Ekip işi sıraya aldı${sira ? ` (önünde ${sira} iş)` : ""}; Fable planlıyor, ilerleme Ajan Ekibi panelinde, sonuç tablolu raporla sohbete gelecek. Kullanıcıya bunu tek cümleyle söyle; işi kendin yapma.` };
+  });
+  // Düz mesajla ekibe iş verme ("ekip: …", içinde "/ekip"), görsel ekli olabilir: modele aracı çağırmasını söyler.
+  on("prompt.submit", async ($, e, next) => {
+    if (e.command) {
+      if (e.command.name === "ekip" && e.attachments?.length) {
+        $.ui.toast("⚠ Görsel /ekip komutuyla gitmez: başına slash koymadan 'ekip: …' yaz");
+        void sohbeteYaz($, "⚠ Görsel ekibe ulaşmadı", "Slash komutları ek taşımaz. Görselli işi slash koymadan yaz: ekip: <istek> (gerekirse /design ekle); ana model görseli ekibe dosya yoluyla verir.");
+      }
+      return next(e);
+    }
+    if (e.origin?.kind === "plugin" || !ekibeMi(e.text)) return next(e);
+    const ek = e.attachments?.length ? ` Mesajda ${e.attachments.length} ek var: dosya yollarını 'gorseller'e ver.` : "";
+    return next({ ...e, context: [...(e.context ?? []), `[ekip eklentisi] Kullanıcı bu işi Ajan Ekibi'ne veriyor. İşi kendin yapma: mcp__ekip__ekibe_ver aracını çağır — hedef: kullanıcının isteği (\"ekip\" sözcüğü olmadan), istekte /design ya da tasarım geçiyorsa tasarim: true.${ek} Sonra yalnız işin sıraya alındığını tek cümleyle söyle.`] });
   });
 
   on("prompt.attachment", { type: "plan_mode" }, async ($, e, next) => { if (!e.agentId) planModu = true; return next(e); });
