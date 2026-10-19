@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi, gorselYollariBul } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
@@ -1147,4 +1147,42 @@ test('senaryo: model ekibe_ver aracını görsel yoluyla çağırır — iş sı
   expect(istemler[0]).toMatch(/REFERANS GÖRSELLER[\s\S]*- C:\/img\/direk\.png/)
   expect(istemler[0]).toMatch(/TASARIM İŞİ/)
   expect(logs.join('\n')).toMatch(/Ekip kuruldu — Direk 3 Faz/)
+})
+
+// ── Gerçek durum (19.10): "/ekip … /design KULLAN" + yapıştırılan görsel. Uygulama "/design"ı "design" yapar, görseli
+// dosyaya kaydedip konuşmaya "[Image: source: …]" satırıyla ekler; komut kaydı ondan hemen önce gelir. ──
+test('görsel yolu: son asistan mesajından sonraki kullanıcı satırlarından alınır; eski görseller alınmaz', () => {
+  const ms: any[] = [
+    { role: 'user', text: '[Image: source: C:/eski/1.png]', toolUses: [] },
+    { role: 'assistant', text: 'tamam', toolUses: [] },
+    { role: 'user', text: '<local-command-caveat>The command below was run directly</local-command-caveat>', toolUses: [] },
+    { role: 'user', text: '[Image: source: C:/Temp/claude/x/images/34.png]', toolUses: [] },
+  ]
+  expect(gorselYollariBul(ms)).toEqual(['C:/Temp/claude/x/images/34.png'])
+  expect(gorselYollariBul([{ role: 'assistant', text: 'x', toolUses: [] }])).toEqual([])
+  expect(istekMetni('3 FAZ ŞEKLİNDE SİMULE ET  SİMULASYON EKRANINA UYGUN OLSUN design  KULLAN')).toMatch(/TASARIM: kullanıcı \/design istedi/)   // slash düşmüş "design"
+})
+
+test('senaryo: /ekip + yapıştırılan görsel — Fable istemi görsel yolunu (açık tema notuyla) ve TASARIM ipucunu taşır; tasarım üyesine Skill+Read eklenir', async ($, on) => {
+  sohbetKur($, on)
+  on('session.messages', () => ({ value: [
+    { role: 'assistant', text: 'önceki iş bitti', toolUses: [] },
+    { role: 'user', text: '<local-command-caveat>The command below was run directly in Claude Code</local-command-caveat>', toolUses: [] },
+    { role: 'user', text: '[Image: source: C:/Temp/claude/x/images/34.png]', toolUses: [] },
+  ] }) as never)
+  const istemler: string[] = []
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    istemler.push(String(e.prompt))
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Direk', amac: 'x', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Write'], gorev: '3 fazlı direk şemasını tasarla', bitis_olcutu: 'svg' }] }) } } as never
+  })
+  const spawned: any[] = []
+  on('agent.spawn', (_$: unknown, e: any) => (spawned.push(e), { model: e.model ?? 'claude-opus-5-5', agentId: 'a1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: '3 FAZ ŞEKLİNDE SİMULE ET  SİMULASYON EKRANINA UYGUN OLSUN design  KULLAN', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 250))
+  expect(istemler[0]).toMatch(/REFERANS GÖRSELLER[^\n]*arka plan rengini\/temasını kopyalama[\s\S]*- C:\/Temp\/claude\/x\/images\/34\.png/)
+  expect(istemler[0]).toMatch(/TASARIM İŞİ/)
+  const plan: any = planDogrula({ ad: 'D', amac: 'x', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Write'], gorev: '3 fazlı direk şemasını tasarla' }] })
+  expect(plan.uyeler[0].tools).toEqual(['Write', 'Read', 'Skill'])                // Fable yalnız Write verdi; Read+Skill eklendi
 })

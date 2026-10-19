@@ -287,12 +287,39 @@ export function adTemizle(s) {
  *  ekli görsellerin dosya yolları REFERANS GÖRSELLER bölümüne yazılır (ajanlar Read ile açar). */
 export function istekMetni(hedef, gorseller = [], tasarim = false) {
   const ham = String(hedef ?? "");
-  const tasarimIstendi = tasarim || /(^|\s)\/design\b/i.test(ham);
+  // "/design" uygulamada "design" olarak gelebiliyor (slash düşüyor): ikisi de tasarım işareti.
+  const tasarimIstendi = tasarim || /(^|\s)\/?design\b/i.test(ham);
   const temiz = ham.replace(/(^|\s)\/design\b/gi, " ").replace(/^\s*\/?ekip\b[:,]?\s*/i, "").replace(/\s+/g, " ").trim();
   const yollar = [...new Set((Array.isArray(gorseller) ? gorseller : []).map(String).map(s => s.trim()).filter(Boolean))].slice(0, 8);
   return [temiz,
     tasarimIstendi ? "TASARIM: kullanıcı /design istedi — tasarım üyesi design becerilerini (Skill) kullansın." : "",
-    yollar.length ? `REFERANS GÖRSELLER (tasarım/çekirdek üye Read ile açıp incelesin; işin temel girdisi):\n${yollar.map(y => `- ${y}`).join("\n")}` : ""].filter(Boolean).join("\n\n");
+    yollar.length ? gorselBolumu(yollar) : ""].filter(Boolean).join("\n\n");
+}
+const gorselBolumu = yollar => `REFERANS GÖRSELLER (tasarım/çekirdek üye Read ile açıp incelesin; işin temel girdisi — biçim, yapı, oran ve ayrıntı için kullan; arka plan rengini/temasını kopyalama, kullanıcının arayüzü açık tema):\n${yollar.map(y => `- ${y}`).join("\n")}`;
+/** Komutla birlikte yapıştırılan görseller (saf): komut ek taşımaz ama uygulama görseli dosyaya kaydedip konuşmaya
+ *  "[Image: source: <yol>]" satırı olarak ekler. Son asistan mesajından sonraki kullanıcı satırlarındaki yollar alınır. */
+export function gorselYollariBul(mesajlar) {
+  const ms = Array.isArray(mesajlar) ? mesajlar : [];
+  const yollar = [];
+  for (let i = ms.length - 1; i >= 0 && ms.length - i <= 12; i--) {
+    const m = ms[i];
+    if (m.role === "assistant" && (m.text?.trim() || m.toolUses?.length)) break;
+    if (m.role !== "user") continue;
+    for (const x of String(m.text ?? "").matchAll(/\[Image: source: ([^\]\r\n]+)\]/g)) yollar.unshift(x[1].trim());
+  }
+  return [...new Set(yollar)].slice(0, 8);
+}
+async function gorselleriAl($) {
+  for (let deneme = 0; deneme < 2; deneme++) {
+    let ms = [];
+    try { ms = await $.session.messages(); } catch { return []; }
+    const y = gorselYollariBul(ms);
+    if (y.length) return y;
+    // Görsel satırı komut kaydından hemen sonra yazılır: son satır komut kaydıysa bir kez kısa bekle.
+    if (deneme || !/local-command/.test(String(ms.at(-1)?.text ?? ""))) return [];
+    await new Promise(r => setTimeout(r, 300));
+  }
+  return [];
 }
 /** Düz mesaj ekibe mi veriliyor (saf)? "ekip: …", "ekibe ver …" ya da metnin içinde "/ekip". */
 export const ekibeMi = t => /^\s*(ekip|ekibe)\b\s*[:,-]?/i.test(String(t ?? "")) || /(^|\s)\/ekip\b/i.test(String(t ?? ""));
@@ -314,6 +341,8 @@ export function planDogrula(j) {
     const uMadde = [...new Set((Array.isArray(u.maddeler) ? u.maddeler : []).map(Number))].filter(n => maddeler.some(m => m.no === n));
     const tasarimUyesi = tasarimMi(`${u.ad} ${u.aciklama} ${u.talimat} ${u.gorev}`);
     const tools = (Array.isArray(u.araclar) ? u.araclar : ["Read", "Grep", "Glob"]).filter(t => ARAC_IZINLI.includes(t) && (tasarimUyesi || (t !== "Skill" && t !== "Artifact")));
+    // Tasarım üyesi design becerilerine (Skill) ve referans görsele (Read) her zaman erişir; Fable unutsa da.
+    if (tasarimUyesi) for (const t of ["Read", "Skill"]) if (!tools.includes(t)) tools.push(t);
     const model = modelSec(u.model); // danışmanın kademe kararı; tanınmayan → Opus
     uyeler.push({
       name, rol: "isci", model, maxTurns: 30,
@@ -865,6 +894,12 @@ async function kur($, hedef) {
   cark($);
   const b = await butceAl($);
   const [st, bag] = await Promise.all([stratejiHizli($), oturumBaglami($, hedef)]);
+  // "/ekip …" ile yapıştırılan görsel: komut ek taşımaz, uygulama onu dosyaya kaydedip konuşmaya yol satırıyla ekler.
+  const ekGorsel = /REFERANS GÖRSELLER/.test(hedef) ? [] : await gorselleriAl($);
+  if (ekGorsel.length) {
+    hedef = `${hedef}\n\n${gorselBolumu(ekGorsel)}`;
+    akisEkle("danisman", `${ekGorsel.length} referans görsel alındı`, "danışman");
+  }
   const tasarimNotu = tasarimMi(hedef) ? "\n\nTASARIM İŞİ: kullanıcı /design ile /ekip'i aynı mesajda kullanamaz; tasarım kısmını ekibe sen ver. En az bir üyeyi tasarım üyesi yap (ad: \"tasarimci\"; araclar: Read, Glob, Write, Skill, Artifact; model: opus). Talimatına design becerilerini Skill aracıyla çağırmasını yaz (design:design-critique, design:design-system, design:ux-copy, design:accessibility-review, design:design-handoff). Görsel varlık SVG olarak projeye yazılır; kod uygulaması ayrı bir üyede, tasarım çıktısına bağımlı olsun." : "";
   const planNotu = planModu ? "\n\nPLAN MODU AÇIK: kullanıcı oturumu plan modunda, ajanlar dosya değiştiremez. Her görevi salt-okur analiz olarak yaz; bitis_olcutu somut bir rapor (bulgu + önerilen değişiklik) olsun; Edit/Write/Bash verme." : "";
   const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${tasarimNotu}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
