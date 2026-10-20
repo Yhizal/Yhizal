@@ -527,6 +527,11 @@ function cark($) {
     const { value: dan = null } = await $.state.get(DANISMAN);
     for (const [id, t0] of canliIs) if (Date.now() - t0 > TAKILI_MS) canliIs.delete(id); // takılı koşu sayacı sonsuza dek açık tutmasın
     void turUzlastir($, tur, k).catch(() => {});
+    // Devredilen ajan 3 dk içinde başlatılmadıysa sessiz kalma.
+    for (const d of devredilen.values()) if (!d.uyarildi && Date.now() - d.zaman > 180_000) {
+      d.uyarildi = true;
+      void sohbeteYaz($, `⚠ ${d.tip.replace(/^ekip:/, "")} hâlâ başlamadı`, "Ekip ajanı başlatmayı ana modele devretmişti ama ajan başlamadı. \"/ekip devam\" yaz ya da ana modelden bu ajanı başlatmasını iste.");
+    }
     for (const x of sessizKosular(k, sonEtkinlik, Date.now(), MODUL_T0).filter(y => !sessizUyarilan.has(y.id))) {
       sessizUyarilan.add(x.id);
       const ad = x.tip.replace(new RegExp(`^${P}:`), "");
@@ -535,7 +540,7 @@ function cark($) {
       void sohbeteYaz($, `⚠ ${ad} ${Math.round(SESSIZ_MS / 60_000)} dk'dır adım atmadı`, `Görev: ${tek(x.aciklama, 100)}${sonEylem.get(x.id) ? `\nSon adım: ${sonEylem.get(x.id)}` : ""}\nTakılmış olabilir; uzun bir komut çalışıyorsa beklemek yeterli. Panelden Durdur ile ekibi durdurabilirsin.`);
     }
     const hareket = canliIs.size > 0 || k.some(x => x.durum === "calisiyor" && Date.now() - x.baslangic < TAKILI_MS) || taslak?.durum === "hazirlaniyor" ||
-      (tur?.durum === "calisiyor" && !uzlastirDenendi.has(tur.no)) ||
+      (tur?.durum === "calisiyor" && !uzlastirDenendi.has(tur.no)) || [...devredilen.values()].some(d => !d.uyarildi) ||
       tur?.durum === "degerlendiriliyor" || dan?.durum === "bekliyor" || bekleyenIsler.length > 0 || kosuyorKuyruk;
     if (!hareket) { ticker?.cancel?.(); ticker = null; return; }
     // Raster şeritleri blit ile canlı; tam yeniden çizimi yalnız yazı spinner'ları için seyrek yap (~1.6 Hz).
@@ -950,19 +955,20 @@ async function onayla($) {
   const bekleyen = taslak.uyeler.filter(u => u.bagimli).map(u => ({ uye: u.name, gorev: u.gorev, model: u.model, beklenenDk: u.beklenenDk, bagimli: u.bagimli }));
   await $.state.set(TUR, { no: 1, durum: "calisiyor", yogun: Boolean(taslak.yogun), bekleyen, butce: taslak.butce ?? "normal", maddeler: taslak.maddeler ?? [] });
   const ilkler = taslak.uyeler.filter(u => !u.bagimli), reddedilen = [];
-  for (const u of ilkler) { const r = await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun }); if (r.deny) reddedilen.push(r.deny); }
+  let devredilenSay = 0;
+  for (const u of ilkler) { const r = await baslat($, u.name, u.gorev, 1, { model: u.model, beklenenDk: u.beklenenDk, yogun: taslak.yogun }); if (r.deny) reddedilen.push(r.deny); if (r.devredildi) devredilenSay++; }
   // Hiçbir ajan başlamadıysa (ör. plan modu spawn'ı reddederse) sessiz kalma: panelde nedeni göster.
   if (ilkler.length && reddedilen.length === ilkler.length) {
     const izinSiniflandirici = /classifier/i.test(reddedilen[0]);
     await $.state.set(TASLAK, { durum: "hata", hedef: taslak.hedef, hata: `Ajanlar başlatılamadı: ${izinSiniflandirici
       ? "auto modun izin denetimi ekip ajanı başlatmaya onay vermedi (istek ajan istemiyor sayıldı). Modu değiştir (Shift+Tab) ya da ayarlarda Agent(ekip:*) için izin kuralı ekle, sonra /ekip'i yeniden çalıştır."
       : tek(reddedilen[0], 130)}${planModu ? " — plan modundasın; Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}` });
-    await $.state.set(TUR, { no: 1, durum: "bitti", yogun: Boolean(taslak.yogun), butce: taslak.butce ?? "normal" }); // "Tur 1/3 çalışıyor" takılı kalmasın
+    await $.state.set(TUR, { no: 1, durum: "hata", yogun: Boolean(taslak.yogun), butce: taslak.butce ?? "normal" }); // "Tur 1/3 çalışıyor" takılı kalmasın; "İş bitti" de demesin
     await sohbeteYaz($, `⚠ Ekip başlatılamadı — ${ad}`, `Ajanlar başlamadı: ${tek(reddedilen[0], 160)}${planModu ? "\nPlan modundasın: Shift+Tab ile çıkıp /ekip'i yeniden çalıştır." : ""}`);
     return;
   }
   if (taslak.yogun) izlemeyiBaslat($);
-  await sohbeteYaz($, `Ekip kuruldu — ${ad}`, `${tek(taslak.amac, 140)}\n${taslak.uyeler.map(u => `• ${u.name} (${kademe(u.model)}): ${tek(u.gorev, 90)}${u.bagimli ? ` — ${u.bagimli} bitince` : ""}`).join("\n")}\nSonuç bitince buraya yazılır.`);
+  await sohbeteYaz($, `Ekip kuruldu — ${ad}`, `${tek(taslak.amac, 140)}\n${taslak.uyeler.map(u => `• ${u.name} (${kademe(u.model)}): ${tek(u.gorev, 90)}${u.bagimli ? ` — ${u.bagimli} bitince` : ""}`).join("\n")}${devredilenSay ? `\n${devredilenSay} ajanın başlatması izin denetimi yüzünden ana modele devredildi; birazdan başlar.` : ""}\nSonuç bitince buraya yazılır.`);
   const sonnet = taslak.uyeler.filter(u => u.model === HIZLI_MODEL).length;
   $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı (${taslak.uyeler.length - sonnet} Opus, ${sonnet} Sonnet · bütçe ${taslak.butce ?? "normal"}${taslak.yogun ? " · yoğun iş: ara brif + tablolu rapor" : ""})`);
 }
@@ -1347,10 +1353,37 @@ export async function baslat($, uye, gorev, tur, o = {}) {
   const ov = (await $.store.get("kademeOverride")) ?? {};
   const model = o.model ?? ov[uye];
   const istek = { subagentType: `${P}:${uye}`, prompt, description: tek(gorev, 40), ...(model ? { model } : {}) };
-  const r = await $.agent.spawn(istek);
+  let r = await $.agent.spawn(istek);
+  // Auto modda plan arka planda bittiğinde ortada kullanıcı isteği yoktur; izin denetimi "karar veremedim, bir kez aynen
+  // tekrar dene" der. Önce dediği gibi bir kez tekrar; yine olmazsa başlatmayı ana modele devret (onun isteği denetlenir).
+  if (r.deny && kararsizRet(r.deny)) {
+    await new Promise(x => setTimeout(x, 800));
+    r = await $.agent.spawn(istek);
+    if (r.deny && kararsizRet(r.deny)) { devret($, { tip: istek.subagentType, prompt, description: istek.description, model, tur, beklenenDk: o.beklenenDk, gorev }); return { devredildi: true }; }
+  }
   if (r.deny) $.ui.toast(`ekip: ${uye} başlatılamadı — ${r.deny}`);
   else if (r.agentId) await kosuEkle($, r.agentId, `${P}:${uye}`, gorev, r.model ?? o.model, tur, o.beklenenDk);
   return r;
+}
+/** İzin sınıflandırıcısı karar vermediyse (ret değil, "karar yok") (saf). */
+export const kararsizRet = d => /no verdict|did not ask for one|issue the action again/i.test(String(d ?? ""));
+// Devredilen başlatmalar: ana model Agent aracıyla başlatınca agent.spawn kancası koşuyu bu bilgiyle (tur, süre) kaydeder.
+const devredilen = new Map(); // "ekip:uye" → { tur, beklenenDk, gorev }
+let devretListe = [], devretZaman = null;
+function devret($, d) {
+  devredilen.set(d.tip, { ...d, zaman: Date.now() });
+  devretListe.push(d);
+  akisEkle("danisman", `${d.tip.replace(/^ekip:/, "")} başlatması ana modele devredildi (izin denetimi)`, "danışman");
+  if (devretZaman) return;
+  devretZaman = setTimeout(() => {
+    const liste = devretListe; devretListe = []; devretZaman = null;
+    void Promise.resolve($.prompt.submit({ text: devretIstemi(liste) })).catch(() => {});
+  }, 400); // aynı anda devredilenler tek mesajda
+}
+/** Ana modele ajan başlatma isteği (saf). */
+export function devretIstemi(liste) {
+  return `[ekip eklentisi] Auto modun izin denetimi eklentinin arka planda başlattığı ekip ajanlarına karar veremedi (ortada istek yoktu). Kullanıcı bu işi ekibe verdi ve ekip:* ajanlarını yetkilendirdi; aşağıdaki ajanları sen başlat. Her satır için Agent aracını bir kez çağır: subagent_type ve prompt AYNEN, run_in_background: true. İşi kendin yapma, sonucu bekleme; ilerleme Ajan Ekibi panelinde, rapor sohbete gelecek. Sonra yalnız "${liste.length} ekip ajanı başlatıldı" yaz.\n\n` +
+    liste.map((d, i) => `${i + 1}. subagent_type: ${d.tip}${d.model ? ` · model: ${d.model}` : ""}\n   description: ${d.description}\n   prompt:\n<<<\n${d.prompt}\n>>>`).join("\n\n");
 }
 
 // ── Canlı akış: kim ne yapıyor. Modül değişkeni (state değil): her araç çağrısı paneli yeniden çizdirmesin;
@@ -1474,7 +1507,7 @@ export function semaVerisi(ekip, kosular, o = {}) {
   const maxTur = t ? Math.min(MAX_TUR, BUTCE_AYAR[t.butce ?? "normal"]?.maxTur ?? MAX_TUR) : MAX_TUR;
   const tur = !t ? { yazi: "beklemede", renk: "#A1A1AA" } : t.durum === "calisiyor" ? { yazi: `tur ${t.no}/${maxTur} çalışıyor`, renk: "#0EA5E9" }
     : t.durum === "degerlendiriliyor" ? { yazi: `tur ${t.no} değerlendiriliyor`, renk: "#C026D3" }
-    : t.durum === "durduruldu" ? { yazi: "durduruluyor", renk: "#D97706" } : { yazi: `tamamlandı · ${t.no} tur`, renk: "#16A34A" };
+    : t.durum === "durduruldu" ? { yazi: "durduruluyor", renk: "#D97706" } : t.durum === "hata" ? { yazi: "başlatılamadı", renk: "#DC2626" } : { yazi: `tamamlandı · ${t.no} tur`, renk: "#16A34A" };
   const sk = o.sk;
   const sonKontrol = !sk ? null : sk.durum === "onay" ? { yazi: "son kontrol ✓", renk: "#16A34A" } : sk.durum === "ret" ? { yazi: "son kontrol ✕", renk: "#DC2626" }
     : sk.durum === "bekliyor" ? { yazi: "son kontrol…", renk: "#C026D3" } : { yazi: "son kontrol ?", renk: "#D97706" };
@@ -1657,7 +1690,10 @@ export function register(on) {
   on("agent.spawn", async ($, e, next) => {
     if (e.permissionMode) planModu = e.permissionMode === "plan";
     const r = await next(e);
-    if (r.agentId) await kosuEkle($, r.agentId, e.subagentType || "genel", e.description || e.prompt, r.model);
+    // Ana modelin, ekipten devralıp başlattığı ajan: koşu turuna bağlanır (tur akışı ve son rapor sürer).
+    const d = devredilen.get(e.subagentType);
+    if (d && r.agentId) devredilen.delete(e.subagentType);
+    if (r.agentId) await kosuEkle($, r.agentId, e.subagentType || "genel", d?.gorev ?? (e.description || e.prompt), r.model ?? d?.model, d?.tur, d?.beklenenDk);
     return r;
   });
 

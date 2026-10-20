@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi, gorselYollariBul } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi, gorselYollariBul, kararsizRet } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
@@ -770,7 +770,7 @@ test('auto mod sınıflandırıcısı ajan başlatmayı reddederse: panelde sebe
     if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
     return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Oto Ekip', amac: 'x', uyeler: [{ ad: 'okuyucu', model: 'sonnet', araclar: ['Read'], gorev: 'oku', bitis_olcutu: 'rapor' }] }) } } as never
   })
-  on('agent.spawn', () => ({ deny: 'The server-side auto mode classifier gave no verdict for Agent: the request that produced this action did not ask for one.' }) as never)
+  on('agent.spawn', () => ({ deny: 'Denied by the auto mode classifier: not allowed.' }) as never)   // gerçek ret (karar yok değil)
   await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
   await $.command.run({ command: 'ekip', args: 'arayüzü yenile', origin: 'user' } as never)
   await new Promise(x => setTimeout(x, 100))
@@ -1185,4 +1185,32 @@ test('senaryo: /ekip + yapıştırılan görsel — Fable istemi görsel yolunu 
   expect(istemler[0]).toMatch(/TASARIM İŞİ/)
   const plan: any = planDogrula({ ad: 'D', amac: 'x', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Write'], gorev: '3 fazlı direk şemasını tasarla' }] })
   expect(plan.uyeler[0].tools).toEqual(['Write', 'Read', 'Skill'])                // Fable yalnız Write verdi; Read+Skill eklendi
+})
+
+test('izin denetimi karar vermezse ("no verdict"): bir kez aynen tekrar; yine olmazsa başlatma ana modele devredilir ve koşu tura bağlanır', async ($, on) => {
+  const { logs, gonderilen } = sohbetKur($, on)
+  on('model.complete', (_$: unknown, e: any) => {
+    if (/model kullanım stratejisi/.test(String(e.system))) return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ozet: 'x', kademeler: { opus: ['a'] } }) } } as never
+    return { value: { isAnswered: true, usage: {}, text: JSON.stringify({ ad: 'Hat Boyu', amac: 'x', uyeler: [{ ad: 'hat-model', model: 'opus', araclar: ['Read', 'Edit'], gorev: 'toplam hat boyu alanı', bitis_olcutu: 'test' }] }) } } as never
+  })
+  let deneme = 0
+  on('agent.spawn', (_$: unknown, e: any) => (++deneme <= 2
+    ? { deny: 'The server-side auto mode classifier gave no verdict for Agent: the request that produced this action did not ask for one. Issue the action again once, as-is; …' }
+    : { model: 'claude-opus-5-5', agentId: 'm1' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.command.run({ command: 'ekip', args: 'toplam hat boyu girilebilsin', origin: 'user' } as never)
+  await new Promise(x => setTimeout(x, 1600))
+  expect(deneme).toBe(2)                                                        // ilk + bir tekrar
+  const istem = gonderilen.join('\n')
+  expect(istem).toMatch(/izin denetimi[\s\S]*Agent aracını bir kez çağır[\s\S]*subagent_type: ekip:hat-model[\s\S]*prompt:\n<<<\n[\s\S]*toplam hat boyu alanı/)
+  expect(logs.join('\n')).not.toMatch(/Ekip başlatılamadı/)
+  expect(logs.join('\n')).toMatch(/1 ajanın başlatması izin denetimi yüzünden ana modele devredildi/)
+  // ana model başlatınca (agent.spawn kancası) koşu tura bağlanır
+  await $.agent.spawn({ prompt: 'x', subagentType: 'ekip:hat-model', description: 'hat' } as never)
+  const ui = await $.ui.mount({ plugin: 'ekip', surface: 'terminal', component: 'Pane', requestId: 'ekip',
+    props: { title: 'Ajan Ekibi', isFocused: true, bodyColumns: 100, placement: 'dock' } as never })
+  expect(await ui.find({ type: 'Text', text: /1\/2 çalışıyor/ })).toBeDefined()
+  await ui.unmount()
+  expect(kararsizRet('Issue the action again once, as-is')).toBe(true)
+  expect(kararsizRet('Denied by the auto mode classifier')).toBe(false)
 })
