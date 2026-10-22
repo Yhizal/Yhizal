@@ -322,9 +322,6 @@ async function gorselleriAl($) {
   return [];
 }
 /** Düz mesaj ekibe mi veriliyor (saf)? "ekip: …", "ekibe ver …" ya da metnin içinde "/ekip". */
-// Yalnız açık iş verme kalıpları: "ekip: …", "ekibe ver/ilet/gönder …" ya da metin içinde "/ekip". "ekip şunu yapsın"
-// gibi ekip HAKKINDA cümleler (kural, şikâyet) iş sayılmaz — 22.10.2026'da bir kural mesajı yanlışlıkla işe dönüyordu.
-export const ekibeMi = t => /^\s*ekip\s*:/i.test(String(t ?? "")) || /^\s*ekibe\s+(ver|ilet|gönder|aktar)/i.test(String(t ?? "")) || /(^|\s)\/ekip\b/i.test(String(t ?? ""));
 /** Plandaki araç listesini işin gerektirdiğine göre tamamlar (yerinde, saf). Cable Simulator analizi (22.10.2026):
  *  25 tasarımcı ajanından 21'i ENGEL/KARAR ile döndü — Write vardı ama Edit yoktu (diff-disiplin var olan dosyaya Write'ı
  *  reddediyor: 17 ret) ve Bash yoktu (bitiş ölçütündeki python/pytest komutu çalıştırılamadı). */
@@ -1576,7 +1573,7 @@ export function register(on) {
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibi panelini aç", argumentHint: "[sor <soru> | kur <hedef> | denetle | animasyon [kapat] | kurallar | modeller [yenile] | strateji [yenile] | devam [yanıtın] | <serbest istek, sıraya girer; tasarım işi yazarsan ekip /design becerilerini kendisi kullanır>]" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibine iş ver: danışman (Fable) planlar, ekibi yönetir, sonucu tablolu raporla bildirir", argumentHint: "<istek> (görsel ekleyebilir, tasarım için design yazabilirsin; boş: paneli aç)" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
@@ -1585,15 +1582,8 @@ export function register(on) {
     // Danışmanın gözü: model izcisi her oturumda kayıtlı (ana modelden gizli); profil haftalıktan eskiyse tazelenir.
     try { await $.agent.register(spec("model-izci")); void profilYasliysaYenile($).catch(() => {}); } catch {}
     void bekleyenBildirim($).catch(() => {}); // sıcak yeniden yüklemede: sohbete yazılmamış bitiş sonucu varsa şimdi yaz
-    // Görselli istekler slash komutuyla gönderilemez (komut ek taşımaz): kullanıcı "ekip: …" diye düz yazar, ana model görseli
-    // görür ve dosya yollarıyla bu aracı çağırır; ajanlar görseli Read ile açar.
-    try {
-      await $.tool.register({ name: "ekibe_ver", description: "Kullanıcı bir işi Ajan Ekibi'ne verdiğinde ('ekip: …', 'ekibe ver', mesajda /ekip) çağır: iş Fable'ın planıyla ekip ajanlarına sıralanır, sonuç tablolu raporla sohbete gelir. İşi kendin yapma. Mesajdaki görsellerin dosya yollarını 'gorseller'e ver; /design ya da tasarım istendiyse tasarim: true.",
-        inputSchema: { type: "object", properties: {
-          hedef: { type: "string", description: "kullanıcının isteği, kendi sözleriyle ('ekip' sözcüğü olmadan)" },
-          gorseller: { type: "array", items: { type: "string" }, description: "mesajdaki ekli görsellerin tam dosya yolları" },
-          tasarim: { type: "boolean", description: "tasarım işi / /design istendi" } }, required: ["hedef"] } });
-    } catch {}
+    // Tek giriş /ekip: görsel, "design" ve devam kararları içeride (kur: yapıştırılan görsel yolları, tasarım işareti;
+    // son kontrol: otomatik devam). Düz mesaj yakalayıcısı ve model aracı (ekibe_ver) 22.10.2026'da kaldırıldı.
     return r;
   });
 
@@ -1687,28 +1677,6 @@ export function register(on) {
     return next(e);
   });
 
-  // Modelin ekibe iş vermesi (görselli istekler dahil).
-  on("tool.call", { tool: "mcp__ekip__ekibe_ver" }, async ($, e) => {
-    const hedef = istekMetni(e.hedef ?? e.input?.hedef, e.gorseller ?? e.input?.gorseller, e.tasarim ?? e.input?.tasarim);
-    if (!hedef.trim()) return { result: "Hedef boş; kullanıcının isteğini 'hedef' alanına yaz." };
-    try { await $.ui.open({ id: PANE, title: "Ajan Ekibi", focus: false, closeOnEscape: true }); panelAcik = true; cark($); } catch {}
-    await $.store.set(`otoDevam:${projeKlasoru}`, 0);
-    const sira = kuyrugaEkle(hedef, () => kurVeBekle($, hedef), () => denetle($, true), m => sekansRaporu($, m));
-    return { result: `Ekip işi sıraya aldı${sira ? ` (önünde ${sira} iş)` : ""}; Fable planlıyor, ilerleme Ajan Ekibi panelinde, sonuç tablolu raporla sohbete gelecek. Kullanıcıya bunu tek cümleyle söyle; işi kendin yapma.` };
-  });
-  // Düz mesajla ekibe iş verme ("ekip: …", içinde "/ekip"), görsel ekli olabilir: modele aracı çağırmasını söyler.
-  on("prompt.submit", async ($, e, next) => {
-    if (e.command) {
-      if (e.command.name === "ekip" && e.attachments?.length) {
-        $.ui.toast("⚠ Görsel /ekip komutuyla gitmez: başına slash koymadan 'ekip: …' yaz");
-        void sohbeteYaz($, "⚠ Görsel ekibe ulaşmadı", "Slash komutları ek taşımaz. Görselli işi slash koymadan yaz: ekip: <istek> (gerekirse /design ekle); ana model görseli ekibe dosya yoluyla verir.");
-      }
-      return next(e);
-    }
-    if (e.origin?.kind === "plugin" || !ekibeMi(e.text)) return next(e);
-    const ek = e.attachments?.length ? ` Mesajda ${e.attachments.length} ek var: dosya yollarını 'gorseller'e ver.` : "";
-    return next({ ...e, context: [...(e.context ?? []), `[ekip eklentisi] Kullanıcı bu işi Ajan Ekibi'ne veriyor. İşi kendin yapma: mcp__ekip__ekibe_ver aracını çağır — hedef: kullanıcının isteği (\"ekip\" sözcüğü olmadan), istekte /design ya da tasarım geçiyorsa tasarim: true.${ek} Sonra yalnız işin sıraya alındığını tek cümleyle söyle.`] });
-  });
 
   on("prompt.attachment", { type: "plan_mode" }, async ($, e, next) => { if (!e.agentId) planModu = true; return next(e); });
   on("prompt.attachment", { type: "plan_mode_exit" }, async ($, e, next) => { if (!e.agentId) planModu = false; return next(e); });
