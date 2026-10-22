@@ -10,6 +10,7 @@ const BLOCKED = { plugin: "diff-disiplin", key: "blocked" };
 const EDITS = { plugin: "diff-disiplin", key: "edits" };
 const ALLOW_WRITE = { plugin: "diff-disiplin", key: "allowWrite" };
 const TOAST_MS = 20_000;
+const yeniYazilan = new Set(); // bu süreçte Write ile sıfırdan oluşturulan dosyalar (küçük harf yol): yeniden yazılabilir
 
 const SPIN = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
 const BAR_W = 24;
@@ -238,10 +239,16 @@ export function register(on) {
   on("tool.call", { tool: "Write" }, async ($, e, next) => {
     const { value: enabled = true } = await $.state.get(ENABLED);
     const { value: allow = false } = await $.state.get(ALLOW_WRITE);
-    if (!enabled || allow || !(await $.fs.exists(e.file_path))) return next(e);
+    const yol = String(e.file_path ?? "").toLowerCase();
+    // Bu oturumda Write ile sıfırdan oluşturulmuş dosya yeniden yazılabilir (ör. ajanın kendi ürettiği SVG taslağı).
+    if (!enabled || allow || yeniYazilan.has(yol)) return next(e);
+    if (!(await $.fs.exists(e.file_path))) { yeniYazilan.add(yol); return next(e); }
     const { value: b = 0 } = await $.state.get(BLOCKED);
     await $.state.set(BLOCKED, b + 1);
-    return { deny: `[diff-disiplin] ${e.file_path} zaten var; tamamını yeniden yazma, Edit ile sadece değişen bloğu düzenle. (Bilerek sıfırdan yazdırmak için prompt'a "sıfırdan" yaz ya da /diffmod ile kapat.)` };
+    // Alt ajan kullanıcıya "sıfırdan yaz / /diffmod" diye soramaz; ona ne yapacağını söyle (Cable Simulator analizi: 17 ret, 21 ENGEL).
+    return { deny: e.agentId
+      ? `[diff-disiplin] ${e.file_path} zaten var; tamamını Write ile yeniden yazma, Edit ile değişen blokları değiştir (gerekirse birkaç Edit). Edit aracın yoksa işi bırakma: "ARAÇ GEREKİR: Edit — ${e.file_path}" yaz ve yapılacak değişikliği tam ver.`
+      : `[diff-disiplin] ${e.file_path} zaten var; tamamını yeniden yazma, Edit ile sadece değişen bloğu düzenle. (Bilerek sıfırdan yazdırmak için prompt'a "sıfırdan" yaz ya da /diffmod ile kapat.)` };
   });
 
   on("tool.call", { tool: "Edit" }, async ($, e, next) => {

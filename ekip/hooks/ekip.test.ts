@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi, gorselYollariBul, kararsizRet } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, ekibeMi, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
 
@@ -990,7 +990,7 @@ test('tasarım: /design ve /ekip aynı mesajda olmaz — tasarım işi ekibe ver
     { ad: 'tasarimci', model: 'opus', araclar: ['Read', 'Write', 'Skill', 'Artifact'], gorev: 'ekran şemasını tasarla', talimat: 'design:design-critique becerisini çağır' },
     { ad: 'duzeltici', model: 'sonnet', araclar: ['Read', 'Edit', 'Skill', 'Artifact'], gorev: 'physics.py limitini düzelt', talimat: 'hesabı düzelt' },
   ] }) as any
-  expect(plan.uyeler[0].tools).toEqual(['Read', 'Write', 'Skill', 'Artifact'])
+  expect(plan.uyeler[0].tools).toEqual(['Read', 'Write', 'Skill', 'Artifact', 'Edit', 'Glob', 'Bash'])   // tasarımcı: yaz + değiştir + doğrula
   expect(plan.uyeler[1].tools).toEqual(['Read', 'Edit'])            // tasarım olmayan üyeden Skill/Artifact düşer
   const r = (ROLLER as any).tasarimci
   expect(r.tools).toEqual(expect.arrayContaining(['Skill', 'Artifact', 'Write']))
@@ -1184,7 +1184,7 @@ test('senaryo: /ekip + yapıştırılan görsel — Fable istemi görsel yolunu 
   expect(istemler[0]).toMatch(/REFERANS GÖRSELLER[^\n]*arka plan rengini\/temasını kopyalama[\s\S]*- C:\/Temp\/claude\/x\/images\/34\.png/)
   expect(istemler[0]).toMatch(/TASARIM İŞİ/)
   const plan: any = planDogrula({ ad: 'D', amac: 'x', uyeler: [{ ad: 'tasarimci', model: 'opus', araclar: ['Write'], gorev: '3 fazlı direk şemasını tasarla' }] })
-  expect(plan.uyeler[0].tools).toEqual(['Write', 'Read', 'Skill'])                // Fable yalnız Write verdi; Read+Skill eklendi
+  expect(plan.uyeler[0].tools).toEqual(['Write', 'Edit', 'Read', 'Glob', 'Bash', 'Skill'])   // Fable yalnız Write verdi; Edit, Bash, Read, Skill eklendi
 })
 
 test('izin denetimi karar vermezse ("no verdict"): bir kez aynen tekrar; yine olmazsa başlatma ana modele devredilir ve koşu tura bağlanır', async ($, on) => {
@@ -1213,4 +1213,34 @@ test('izin denetimi karar vermezse ("no verdict"): bir kez aynen tekrar; yine ol
   await ui.unmount()
   expect(kararsizRet('Issue the action again once, as-is')).toBe(true)
   expect(kararsizRet('Denied by the auto mode classifier')).toBe(false)
+})
+
+// ── Cable Simulator analizi (22.10.2026): 209 ekip ajanı — tasarımcıların 21/25'i Edit/Bash eksikliğinden ENGEL/KARAR ile
+// döndü (17 diff-disiplin Write reddi), bağlı üyeler ön koşul tutmadan başlayıp zincirleme ENGEL verdi. ──
+test('araç tamamlama: Write varsa Edit; tasarımcıya Edit+Bash+Skill; bitiş ölçütü komutsa Bash', () => {
+  expect(araclariTamamla(['Read', 'Write'])).toEqual(['Read', 'Write', 'Edit'])
+  expect(araclariTamamla(['Read', 'Glob', 'Write'], { tasarim: true })).toEqual(['Read', 'Glob', 'Write', 'Edit', 'Bash', 'Skill'])
+  expect(araclariTamamla(['Read', 'Grep', 'Glob'], { metin: "python -c \"import xml.etree.ElementTree as E;E.parse('a.svg')\"" })).toContain('Bash')
+  expect(araclariTamamla(['Read', 'Grep'], { metin: 'pytest -q yeşil' })).toContain('Bash')
+  expect(araclariTamamla(['Read', 'Grep'], { metin: 'tabloyu doldur' })).toEqual(['Read', 'Grep'])
+})
+
+test('bağımlılık: üye ENGEL/KARAR/ARAÇ GEREKİR ile dönerse bağlıları başlatılmaz, ertelenip değerlendirmeye gider', () => {
+  const tur: any = { no: 1, durum: 'calisiyor', bekleyen: [{ uye: 'dogrulayici', bagimli: 'tasarimci', gorev: 'svg denetle' }, { uye: 'belgeci', bagimli: 'dogrulayici', gorev: 'kanıt yaz' }] }
+  const engelli: any = { id: 't', tur: 1, durum: 'bitti', cikti: 'ÖZET: yazılamadı\nENGEL: Edit aracım yok' }
+  const a: any = turAdimi(tur, [engelli], engelli, 'tasarimci')
+  expect(a.acilan).toEqual([])
+  expect(a.ertelenen).toEqual([{ uye: 'dogrulayici', neden: 'tasarimci: ENGEL: Edit aracım yok' }])
+  expect(a.bekleyen.map((b: any) => b.uye)).toEqual(['belgeci'])
+  const iyi: any = { id: 't', tur: 1, durum: 'bitti', cikti: 'ÖZET: svg yazıldı\nMADDE #1: YAPILDI — parse OK' }
+  expect(turAdimi(tur, [iyi], iyi, 'tasarimci').acilan.map((b: any) => b.uye)).toEqual(['dogrulayici'])
+  expect(engelliCikti({ durum: 'bitti', cikti: 'ARAÇ GEREKİR: Bash — xml denetimi' } as any)).toBe(true)
+  expect(engelliCikti({ durum: 'hata', cikti: '' } as any)).toBe(true)
+})
+
+test('işçi kuralları: önerini uygula, bozduğun testi düzelt, araç eksikse ARAÇ GEREKİR', () => {
+  expect(ISCI_FORMAT).toMatch(/"Önerim \(a\)" diyebiliyorsan onu UYGULA/)
+  expect(ISCI_FORMAT).toMatch(/bozduğu test ve çağrı yerlerini düzelt/)
+  expect(ISCI_FORMAT).toMatch(/ARAÇ GEREKİR: <araç>/)
+  expect(String(Object.values(KADEME_EK)[0])).toMatch(/dosya başka üyenin listesinde olsa da/)
 })

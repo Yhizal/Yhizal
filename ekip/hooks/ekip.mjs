@@ -323,6 +323,16 @@ async function gorselleriAl($) {
 }
 /** Düz mesaj ekibe mi veriliyor (saf)? "ekip: …", "ekibe ver …" ya da metnin içinde "/ekip". */
 export const ekibeMi = t => /^\s*(ekip|ekibe)\b\s*[:,-]?/i.test(String(t ?? "")) || /(^|\s)\/ekip\b/i.test(String(t ?? ""));
+/** Plandaki araç listesini işin gerektirdiğine göre tamamlar (yerinde, saf). Cable Simulator analizi (22.10.2026):
+ *  25 tasarımcı ajanından 21'i ENGEL/KARAR ile döndü — Write vardı ama Edit yoktu (diff-disiplin var olan dosyaya Write'ı
+ *  reddediyor: 17 ret) ve Bash yoktu (bitiş ölçütündeki python/pytest komutu çalıştırılamadı). */
+export function araclariTamamla(tools, { tasarim = false, metin = "" } = {}) {
+  const ekle = t => { if (!tools.includes(t)) tools.push(t); };
+  if (tools.includes("Write")) ekle("Edit");                        // var olan dosyayı değiştirebilsin (Write yalnız yeni dosya)
+  if (tasarim) for (const t of ["Read", "Glob", "Edit", "Write", "Bash", "Skill"]) ekle(t);   // varlık yaz + doğrula + design becerileri
+  if (/\b(python|py -|pytest|pip|npm|node|git|build|\.bat|\.exe|selftest|grep -c|xml\.etree|derle|çalıştır)/i.test(metin)) ekle("Bash");   // bitiş ölçütü bir komutsa
+  return tools;
+}
 /** Metin tasarım/görsel iş mi (saf)? Tasarım üyesi (Skill + Artifact) ve plan ipucu buna bağlı. */
 export const tasarimMi = t => /tasar[ıi]m|design|şema|sema\b|mockup|wireframe|prototip|\bsvg\b|\bUI\b|\bUX\b|ekran yerleş|görsel|arayüz|simge|ikon|erişilebilir/i.test(String(t ?? ""));
 export function planDogrula(j) {
@@ -341,8 +351,7 @@ export function planDogrula(j) {
     const uMadde = [...new Set((Array.isArray(u.maddeler) ? u.maddeler : []).map(Number))].filter(n => maddeler.some(m => m.no === n));
     const tasarimUyesi = tasarimMi(`${u.ad} ${u.aciklama} ${u.talimat} ${u.gorev}`);
     const tools = (Array.isArray(u.araclar) ? u.araclar : ["Read", "Grep", "Glob"]).filter(t => ARAC_IZINLI.includes(t) && (tasarimUyesi || (t !== "Skill" && t !== "Artifact")));
-    // Tasarım üyesi design becerilerine (Skill) ve referans görsele (Read) her zaman erişir; Fable unutsa da.
-    if (tasarimUyesi) for (const t of ["Read", "Skill"]) if (!tools.includes(t)) tools.push(t);
+    araclariTamamla(tools, { tasarim: tasarimUyesi, metin: `${u.gorev} ${u.bitis_olcutu ?? ""} ${u.on_kosul ?? ""}` });
     const model = modelSec(u.model); // danışmanın kademe kararı; tanınmayan → Opus
     uyeler.push({
       name, rol: "isci", model, maxTurns: 30,
@@ -905,7 +914,7 @@ async function kur($, hedef) {
     hedef = `${hedef}\n\n${gorselBolumu(ekGorsel)}`;
     akisEkle("danisman", `${ekGorsel.length} referans görsel alındı`, "danışman");
   }
-  const tasarimNotu = tasarimMi(hedef) ? "\n\nTASARIM İŞİ: kullanıcı /design ile /ekip'i aynı mesajda kullanamaz; tasarım kısmını ekibe sen ver. En az bir üyeyi tasarım üyesi yap (ad: \"tasarimci\"; araclar: Read, Glob, Write, Skill, Artifact; model: opus). Talimatına design becerilerini Skill aracıyla çağırmasını yaz (design:design-critique, design:design-system, design:ux-copy, design:accessibility-review, design:design-handoff). Görsel varlık SVG olarak projeye yazılır; kod uygulaması ayrı bir üyede, tasarım çıktısına bağımlı olsun." : "";
+  const tasarimNotu = tasarimMi(hedef) ? "\n\nTASARIM İŞİ: kullanıcı /design ile /ekip'i aynı mesajda kullanamaz; tasarım kısmını ekibe sen ver. En az bir üyeyi tasarım üyesi yap (ad: \"tasarimci\"; araclar: Read, Glob, Edit, Write, Bash, Skill, Artifact; model: opus). Talimatına design becerilerini Skill aracıyla çağırmasını yaz (design:design-critique, design:design-system, design:ux-copy, design:accessibility-review, design:design-handoff). Görsel varlık SVG olarak projeye yazılır; kod uygulaması ayrı bir üyede, tasarım çıktısına bağımlı olsun." : "";
   const planNotu = planModu ? "\n\nPLAN MODU AÇIK: kullanıcı oturumu plan modunda, ajanlar dosya değiştiremez. Her görevi salt-okur analiz olarak yaz; bitis_olcutu somut bir rapor (bulgu + önerilen değişiklik) olsun; Edit/Write/Bash verme." : "";
   const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${tasarimNotu}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
   let r = await fable($, { system: KUR_SISTEM, prompt: temel, maxTokens: 9000, timeoutMs: 240_000 });
@@ -1033,15 +1042,27 @@ export async function araBrif($, tetik, kaynak) {
 /** Biten üyeden sonra ne olur (saf): açılan bağımlılar, kalan bekleyenler, ara brif tetikleyicisi. */
 export function turAdimi(tur, kosular, kosu, ad) {
   if (tur?.no !== kosu.tur || tur.durum !== "calisiyor") return { acilan: [], bekleyen: tur?.bekleyen ?? [], tetik: null };
-  const acilan = (tur.bekleyen ?? []).filter(b => b.bagimli === ad).map(b => ({ ...b, gorev: `${b.gorev}\n\n${ad} çıktısı:\n${tek(kosu.cikti, 1200)}` }));
+  const bagli = (tur.bekleyen ?? []).filter(b => b.bagimli === ad);
   const surenVar = kosular.some(x => x.tur === tur.no && x.durum === "calisiyor" && x.id !== kosu.id);
-  return { acilan, bekleyen: (tur.bekleyen ?? []).filter(b => b.bagimli !== ad), tetik: tur.yogun && surenVar ? (bayrak(kosu.cikti) ? "T3" : "T1") : null };
+  const kalan = (tur.bekleyen ?? []).filter(b => b.bagimli !== ad);
+  const tetik = tur.yogun && surenVar ? (bayrak(kosu.cikti) ? "T3" : "T1") : null;
+  // Ön koşul tutmadı (üye hata/ENGEL/KARAR/ARAÇ GEREKİR ile döndü): bağlıları başlatma — analizde doğrulayıcı/derleyici/belgeci
+  // zinciri tasarımcı yazamadığı hâlde başlayıp hepsi "ön koşul yok" diye ENGEL'le döndü. Ertelenenler değerlendirmeye gider.
+  if (bagli.length && engelliCikti(kosu)) return { acilan: [], ertelenen: bagli.map(b => ({ uye: b.uye, neden: `${ad}: ${engelNedeni(kosu)}` })), bekleyen: kalan, tetik };
+  const acilan = bagli.map(b => ({ ...b, gorev: `${b.gorev}\n\n${ad} çıktısı:\n${tek(kosu.cikti, 1200)}` }));
+  return { acilan, ertelenen: [], bekleyen: kalan, tetik };
 }
+/** Üye işini ön koşul olarak tamamlayamadı mı (saf)? */
+export const engelliCikti = kosu => kosu.durum !== "bitti" || Boolean(bayrak(kosu.cikti)) || /(^|\n)\s*ARAÇ GEREK[İI]R\s*:/i.test(String(kosu.cikti ?? ""));
+const engelNedeni = kosu => kosu.durum !== "bitti" ? kosu.durum : tek((String(kosu.cikti ?? "").match(/(ENGEL|KARAR GEREK[İI]R|ARAÇ GEREK[İI]R)\s*:\s*(.*)/i) ?? [])[0] ?? "ön koşul tutmadı", 160);
 async function turIlerle($, kosu, ad) {
   const { value: tur = null } = await $.state.get(TUR);
   const { value: k = [] } = await $.state.get(KOSULAR);
   const a = turAdimi(tur, k, kosu, ad);
-  if (a.acilan.length) {
+  if (a.ertelenen?.length) {
+    await $.state.set(TUR, { ...tur, bekleyen: a.bekleyen, ertelenen: [...(tur.ertelenen ?? []), ...a.ertelenen] });
+    akisEkle("danisman", `${a.ertelenen.map(x => x.uye).join(", ")} ertelendi — ${ad} ön koşulu tamamlayamadı`, "danışman");
+  } else if (a.acilan.length) {
     await $.state.set(TUR, { ...tur, bekleyen: a.bekleyen });
     for (const b of a.acilan) await baslat($, b.uye, b.gorev, tur.no, { model: b.model, beklenenDk: b.beklenenDk, yogun: tur.yogun });
   }
@@ -1098,7 +1119,9 @@ async function turBitti($, no) {
   const b = await butceAl($); // tur arasında kota değişmiş olabilir: sonraki turun gücü buna göre
   const maxTur = Math.min(MAX_TUR, b.ayar.maxTur);
   const oncekiMadde = maddeleriBirlestir(tur.maddeler ?? [], buTur, null);
-  const maddeBolumu = oncekiMadde.length ? `\n\nİSTEK MADDELERİ (plan + işçi raporu):\n${maddeListesi(oncekiMadde)}` : "";
+  const maddeBolumu = (oncekiMadde.length ? `\n\nİSTEK MADDELERİ (plan + işçi raporu):\n${maddeListesi(oncekiMadde)}` : "")
+    + (tur.ertelenen?.length ? `\n\nERTELENEN ÜYELER (bağlı oldukları üye ön koşulu tamamlayamadığı için başlatılmadı; önce engeli çözen görevi, sonra bunları "sonraki"de yeniden ata):\n${tur.ertelenen.map(x => `- ${x.uye} — ${x.neden}`).join("\n")}` : "")
+    + "\n\nİşçilerin KARAR GEREKİR / ARAÇ GEREKİR / DEVİR satırlarını sen çöz: önerilen seçeneği seç, görevi araçları olan üyeye (Edit/Bash) ver ve DEVİR yamalarını uygulatacak görevi ata.";
   const r = await fable($, {
     system: DEGER_SISTEM, maxTokens: 4000, timeoutMs: 180_000,
     prompt: `Ekip: ${ekip.ad}. Hedef: ${ekip.hedef ?? ekip.amac}. Üyeler: ${ekip.uyeler.filter(u => u !== "danisman").join(", ")}. Tur ${no}/${maxTur}. İş: ${yogun ? "yoğun" : "basit"}.\n${butceSatiri(b)}${stratejiBolumu(await stratejiOku($))}` +
