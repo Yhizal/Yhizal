@@ -1244,3 +1244,14 @@ test('işçi kuralları: önerini uygula, bozduğun testi düzelt, araç eksikse
   expect(ISCI_FORMAT).toMatch(/ARAÇ GEREKİR: <araç>/)
   expect(String(Object.values(KADEME_EK)[0])).toMatch(/dosya başka üyenin listesinde olsa da/)
 })
+
+test('kural: kurulum serbest ve raporlanır; öncelik doğru-eksiksiz tamamlama, eksikse net rapor; ekip hakkında cümle iş sayılmaz', () => {
+  expect(KARAR_ILKESI).toMatch(/5\. Kurulum serbesttir[\s\S]*son raporda yazılır/)
+  expect(KARAR_ILKESI).toMatch(/6\. Öncelik sırası: \(1\) adımları DOĞRU ve EKSİKSİZ tamamla; \(2\)[\s\S]*NET yaz/)
+  expect(ISCI_FORMAT).toMatch(/KURULDU: <paket> — <neden>/)
+  expect(ISCI_FORMAT).not.toMatch(/pakete yeni bağımlılık/)
+  expect(ekibeMi('ekip her hangi bir şey kurulması gerekiyorsa danışman kursun')).toBe(false)   // kural cümlesi, iş değil
+  expect(ekibeMi('ekip: toplam hat boyu girilebilsin')).toBe(true)
+  expect(ekibeMi('ekibe ver: şemayı yenile')).toBe(true)
+  expect(ekibeMi('bunu /ekip ile yap')).toBe(true)
+})
