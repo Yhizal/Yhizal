@@ -333,7 +333,10 @@ export function araclariTamamla(tools, { tasarim = false, metin = "" } = {}) {
   return tools;
 }
 /** Metin tasarım/görsel iş mi (saf)? Tasarım üyesi (Skill + Artifact) ve plan ipucu buna bağlı. */
-export const tasarimMi = t => /tasar[ıi]m|design|şema|sema\b|mockup|wireframe|prototip|\bsvg\b|\bUI\b|\bUX\b|ekran yerleş|görsel|arayüz|simge|ikon|erişilebilir/i.test(String(t ?? ""));
+// "/design" komut içinde YAZILAMAZ: uygulama, argümanında ikinci bir slash komutu olan komutu hiç göndermiyor ("A command
+// takes file @-mentions but no other … slash commands …, so nothing was sent"). Tasarım işi bu yüzden istekten anlaşılır:
+// sayfa/iç düzen, okunaklılık, kullanışlılık, yerleşim, görünüm… ("düzenle" fiili değil, "düzen(i)" adı).
+export const tasarimMi = t => /tasar[ıi]m|design|şema|sema\b|mockup|wireframe|prototip|\bsvg\b|\bUI\b|\bUX\b|ekran yerleş|görsel|arayüz|simge|ikon|erişilebilir|\blayout\b|sayfa düzen|iç düzen|düzen(i|ini|ine|i̇)?\b(?!le)|okunakl|kullanışl|yerleşim|görünüm|renk|yazı tipi|font\b/i.test(String(t ?? ""));
 export function planDogrula(j) {
   if (!j || !Array.isArray(j.uyeler)) return null;
   const goruldu = new Set(["danisman"]);
@@ -1573,7 +1576,7 @@ export function register(on) {
     izleme?.cancel?.();
     izleme = null;
     try { const { value: t = null } = await $.state.get(TUR); if (t?.yogun && t.durum === "calisiyor") izlemeyiBaslat($); } catch {}
-    await $.command.register({ name: "ekip", description: "Ajan ekibine iş ver: danışman (Fable) planlar, ekibi yönetir, sonucu tablolu raporla bildirir", argumentHint: "<istek> (görsel ekleyebilir, tasarım için design yazabilirsin; boş: paneli aç)" });
+    await $.command.register({ name: "ekip", description: "Ajan ekibine iş ver: danışman (Fable) planlar, ekibi yönetir, sonucu tablolu raporla bildirir", argumentHint: "<istek> — görsel ekleyebilirsin; tasarım işi istekten anlaşılır (/design YAZMA: uygulama komutu göndermez; gerekirse slash'sız design yaz). Boş: paneli aç" });
     try {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);

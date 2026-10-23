@@ -1240,3 +1240,12 @@ test('tek giriş /ekip: düz mesaj yakalayıcısı ve ekibe_ver aracı yok; /eki
   expect(kayitlar).not.toContain('ekibe_ver')
   expect(istekMetni('şemayı yenile design')).toMatch(/TASARIM: kullanıcı \/design istedi/)
 })
+
+test('tasarım işi /design yazılmadan anlaşılır (uygulama /ekip içinde ikinci slash komutunu göndermiyor)', () => {
+  expect(tasarimMi('bu sayfa düzenini beğenmiyorum iç düzeni burayı kullanışlı ve okunaklı düzen yap')).toBe(true)
+  expect(tasarimMi('ekranın yerleşimi ve renkleri karışık')).toBe(true)
+  expect(tasarimMi('physics.py dosyasını düzenle')).toBe(false)            // "düzenle" fiili tasarım değil
+  expect(tasarimMi('tabloyu yeniden düzenle')).toBe(false)
+  expect(tasarimMi('toplam hat boyu girilebilsin')).toBe(false)
+  expect(tasarimMi(istekMetni('çizimi güncelle', ['C:/x/images/19.png']))).toBe(true)   // görsel ekliyse tasarım sayılır
+})
