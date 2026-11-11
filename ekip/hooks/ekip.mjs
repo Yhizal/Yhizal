@@ -1,7 +1,7 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
 import { sadeSvg, yuzde5, sureKisa, eylemOzeti } from "./sade.mjs";
-import { KURALLAR, KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula } from "./kurallar.mjs";
+import { KURALLAR, KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula, eforSec } from "./kurallar.mjs";
 
 const P = "ekip";
 const KOSULAR = { plugin: "ekip", key: "kosular" };
@@ -27,7 +27,10 @@ const PANE = "ekip";
 export const DANISMAN_MODEL = "fable";
 export const ISCI_MODEL = UZMAN_MODEL;
 export { HIZLI_MODEL };
-export const DANISMAN_ADAYLAR = ["fable", "claude-fable-5-1", "opus"];
+export const DANISMAN_ADAYLAR = ["fable", "claude-fable-5-2", "claude-fable-5-1", "opus"];
+// Danışmanın eforu: güncel Fable'ın önerilen effort'u (profilden; siteden tazelenir). Profil her okunduğunda güncellenir.
+let danismanEfor = eforSec(MODEL_PROFILI_VARSAYILAN);
+export const danismanEforu = () => danismanEfor;
 const MAX_TUR = 3; // Fable'ın kendi kendine atama turu üst sınırı (kota koruması)
 const MAX_UYE = 5;
 // Skill ve Artifact yalnız tasarım üyeleri içindir (/design becerileri ve tasarım sayfası); salt-okur/hafif üyelere verilmez.
@@ -37,7 +40,7 @@ const MAX_KOSU = 30;
 
 export const ROLLER = {
   danisman: {
-    rol: "danisman", model: DANISMAN_MODEL, effort: "high",
+    rol: "danisman", model: DANISMAN_MODEL, effort: "medium", // spec() güncel modelin önerilen eforunu koyar
     description: "Ekip danışmanı: mimari kararlar, plan, risk analizi ve ekip çıktılarının gözden geçirilmesi (STM32/HAL, Altium, ThingsBoard). Tasarım kararı gerektiğinde çağır.",
     prompt: `Sen gömülü sistemler ve yazılım mimarisi danışmanısın; ekibin lideri gibi düşün. Önce 3 maddelik özet, sonra gerekçe, sonra riskler ve sıradaki adımlar. Kod yazma; karar ver, görev dağıt, çıktıları denetle. Türkçe yaz.\nHesap verebilirlik: kararlar ve son rapor senindir. İş bitince kullanıcı tablolu rapor görür (değişiklikler, istek maddeleri, açık noktalar ve ileride yapılacaklar); rapor eksik, yanlış ya da belirsizse ya da bir iş gerekçesiz kalırsa bütün sorumluluk sana aittir.\n\n${KARAR_ILKESI}\n\n${KURALLAR}`,
     tools: ["Read", "Grep", "Glob"],
@@ -97,7 +100,7 @@ Mevcut kod dosyasında yalnız değişen bloğu düzenle. Çıktında ürettiği
   "model-izci": {
     rol: "izci", model: HAFIF_MODEL, maxTurns: 6,
     description: "Anthropic model sayfasından güncel Claude modellerinin yetenek, hız ve fiyatını çıkarır (ekip danışmanı için).",
-    prompt: "Görevin: WebFetch ile https://platform.claude.com/docs/en/about-claude/models/overview sayfasını (yönlendirme olursa yeni adresi) oku; gerekirse https://platform.claude.com/docs/en/about-claude/models/choosing-a-model sayfasına da bak. fable, opus, sonnet ve haiku ailelerinin her birinden en güncel modeli al. Yalnız JSON döndür, başka metin yazma:\n{\"kaynak\":\"okunan adres\",\"modeller\":[{\"alias\":\"fable|opus|sonnet|haiku\",\"id\":\"claude-...\",\"gecikme\":\"sitedeki göreli gecikme\",\"fiyat\":\"$girdi / $çıktı (MTok)\",\"guclu\":\"sitedeki tanım ve önerilen kullanım, Türkçe, ≤150 karakter\"}]}",
+    prompt: "Görevin: WebFetch ile https://platform.claude.com/docs/en/about-claude/models/overview sayfasını (yönlendirme olursa yeni adresi) oku; gerekirse https://platform.claude.com/docs/en/about-claude/models/choosing-a-model sayfasına da bak. fable, opus, sonnet ve haiku ailelerinin her birinden en güncel modeli al. Yalnız JSON döndür, başka metin yazma:\n{\"kaynak\":\"okunan adres\",\"modeller\":[{\"alias\":\"fable|opus|sonnet|haiku\",\"id\":\"claude-...\",\"efor\":\"sitede bu model için önerilen/varsayılan effort (low|medium|high|xhigh|max); yazmıyorsa boş\",\"gecikme\":\"sitedeki göreli gecikme\",\"fiyat\":\"$girdi / $çıktı (MTok)\",\"guclu\":\"sitedeki tanım ve önerilen kullanım, Türkçe, ≤150 karakter\"}]}",
     tools: ["WebFetch"],
   },
 };
@@ -156,7 +159,7 @@ export function rolu(ekip, name) {
 }
 export function spec(name, ekip) {
   const { rol, gorev, ...r } = rolu(ekip, name);
-  return { name, ...r };
+  return { name, ...r, ...(rol === "danisman" ? { effort: danismanEfor } : {}) };
 }
 
 // İlerleme: alt ajanın adım sayısından, bitene kadar %95'i geçmeyen yumuşak eğri.
@@ -568,7 +571,7 @@ async function fable($, istek) {
   let son = { isAnswered: false, reason: "model yok" };
   for (const model of DANISMAN_ADAYLAR) {
     try {
-      const r = await $.model.complete({ ...istek, model });
+      const r = await $.model.complete({ effort: danismanEfor, ...istek, model });
       if (r.isAnswered || r.reason === "aborted") return { ...r, model };
       son = r;
     } catch (err) { son = { isAnswered: false, reason: String(err).slice(0, 120) }; }
@@ -789,7 +792,10 @@ async function araRapor($, kosu, ad) {
 const GUN = 86_400_000;
 async function modelProfili($) {
   const p = await $.store.get("modelProfili");
-  return p?.modeller?.length ? p : MODEL_PROFILI_VARSAYILAN;
+  // Kodla gelen varsayılan daha yeniyse (yeni model sürümü) o geçerlidir; izci siteden tazeleyince saklanan yine öne geçer.
+  const profil = p?.modeller?.length && String(p.tarih ?? "") >= MODEL_PROFILI_VARSAYILAN.tarih ? p : MODEL_PROFILI_VARSAYILAN;
+  danismanEfor = eforSec(profil);
+  return profil;
 }
 /** Model izcisini (Haiku, WebFetch) başlatır; cevabı turn.complete'te profil olarak saklanır. */
 async function modelleriYenile($, { sessiz = false } = {}) {
@@ -811,6 +817,10 @@ async function izciBitti($, cikti, basarili) {
   const degisen = p.modeller.filter(m => !once.modeller.some(o => o.id === m.id && o.fiyat === m.fiyat)).map(m => m.id);
   // Model ya da fiyat değişmediyse profil tarihi korunur: stratejiler boşuna yeniden yazılmaz (token).
   await $.store.set("modelProfili", { ...p, tarih: degisen.length ? p.tarih : once.tarih, alinma: Date.now() });
+  // Danışman güncel modelin önerilen eforuna geçer (siteden okunduysa); ajan kaydı da yenilenir.
+  const eski = danismanEfor;
+  await modelProfili($);
+  if (danismanEfor !== eski) { try { await $.agent.register(spec("danisman", await aktifEkip($))); } catch {} }
   if (!degisen.length) { $.ui.toast("✔ Model profili siteden doğrulandı — değişiklik yok"); return; }
   $.ui.toast(`✔ Model profili güncellendi — yeni/değişen: ${degisen.join(", ")}; proje stratejisi yenileniyor`);
   void strateji($, { zorla: true }).catch(() => {});
@@ -1581,6 +1591,7 @@ export function register(on) {
       const b = await $.store.get("adimBellek");
       if (b && typeof b === "object") await $.state.set(ADIM_BELLEK, b);
     } catch {}
+    try { await modelProfili($); } catch {} // danışmanın eforu (güncel modelin önerileni) ajan kaydından önce belli olsun
     try { await yukle($, (await aktifEkip($)).ad); } catch (err) { $.ui.toast(`ekip yüklenemedi: ${String(err).slice(0, 80)}`); }
     // Danışmanın gözü: model izcisi her oturumda kayıtlı (ana modelden gizli); profil haftalıktan eskiyse tazelenir.
     try { await $.agent.register(spec("model-izci")); void profilYasliysaYenile($).catch(() => {}); } catch {}

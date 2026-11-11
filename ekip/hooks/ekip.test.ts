@@ -1,7 +1,7 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti, DANISMAN_ADAYLAR } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
-import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK } from './kurallar.mjs'
+import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, MODEL_PROFILI_VARSAYILAN, eforSec, profilDogrula } from './kurallar.mjs'
 
 test('her şablon ekibin başında Fable danışman var ve tüm üyeler tanımlı', () => {
   for (const e of SABLON_EKIPLER) {
@@ -1248,4 +1248,38 @@ test('tasarım işi /design yazılmadan anlaşılır (uygulama /ekip içinde iki
   expect(tasarimMi('tabloyu yeniden düzenle')).toBe(false)
   expect(tasarimMi('toplam hat boyu girilebilsin')).toBe(false)
   expect(tasarimMi(istekMetni('çizimi güncelle', ['C:/x/images/19.png']))).toBe(true)   // görsel ekliyse tasarım sayılır
+})
+
+test('danışman: Fable 5.2 ve güncel modelin önerilen eforu (varsayılan medium; siteden gelen profil belirler)', async ($, on) => {
+  const fable = (MODEL_PROFILI_VARSAYILAN.modeller as any[]).find(m => m.alias === 'fable')
+  expect(fable.id).toBe('claude-fable-5-2')
+  expect(eforSec(MODEL_PROFILI_VARSAYILAN)).toBe('medium')
+  expect(eforSec({ modeller: [{ alias: 'fable', efor: 'High' }] } as any)).toBe('high')       // profildeki öneri geçerli
+  expect(eforSec({ modeller: [{ alias: 'fable', efor: 'çok' }] } as any)).toBe('medium')      // tanınmayan → medium
+  expect(eforSec({ modeller: [{ alias: 'fable' }] } as any)).toBe('medium')
+  const p: any = profilDogrula({ modeller: [
+    { alias: 'fable', id: 'claude-fable-6', efor: 'xhigh', fiyat: 'x', gecikme: 'y', guclu: 'z' }, { alias: 'opus', id: 'claude-opus-6', efor: 'saçma' },
+    { alias: 'sonnet', id: 'claude-sonnet-6' }, { alias: 'haiku', id: 'claude-haiku-6' }] }, '2027-01-01')
+  expect(p.modeller[0].efor).toBe('xhigh')
+  expect(p.modeller[1].efor).toBeUndefined()
+  expect(DANISMAN_ADAYLAR.slice(0, 2)).toEqual(['fable', 'claude-fable-5-2'])
+  expect(spec('danisman').effort).toBe('medium')
+  // danışman çağrıları eforu taşır; saklanan (daha yeni tarihli) profil eforu değiştirir
+  mock.clock(on); mock.store(on, { izciDeneme: Date.now(), modelProfili: { tarih: '2099-01-01', kaynak: 'site', modeller: [
+    { kademe: 'danışman', alias: 'fable', id: 'claude-fable-7', efor: 'high', gecikme: '', fiyat: '', guclu: '' }, { kademe: 'uzman', alias: 'opus', id: 'claude-opus-7', gecikme: '', fiyat: '', guclu: '' },
+    { kademe: 'hızlı', alias: 'sonnet', id: 'claude-sonnet-7', gecikme: '', fiyat: '', guclu: '' }, { kademe: 'hafif', alias: 'haiku', id: 'claude-haiku-7', gecikme: '', fiyat: '', guclu: '' }] } })
+  on('ui.toast', () => ({ value: undefined }) as never)
+  on('ui.log', () => ({ value: undefined }) as never)
+  on('session.start', (_$: unknown, e: any) => e as never)
+  on('command.register', () => ({ value: undefined }) as never)
+  on('ui.open', () => ({ value: { isPlaced: true } }) as never)
+  const kayit: any[] = []
+  on('agent.register', (_$: unknown, e: any) => (kayit.push(e), { value: { agent: `ekip:${e.name}` } }) as never)
+  const eforlar: string[] = []
+  on('model.complete', (_$: unknown, e: any) => (eforlar.push(String(e.effort)), { value: { isAnswered: true, usage: {}, text: 'cevap' } }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  expect(kayit.find(x => x.name === 'danisman').effort).toBe('high')                          // siteden gelen öneri
+  await $.command.run({ command: 'ekip', args: 'sor durum nedir', origin: 'user' } as never)
+  await new Promise(r => setTimeout(r, 100))
+  expect(eforlar).toContain('high')
 })

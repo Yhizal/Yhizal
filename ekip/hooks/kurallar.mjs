@@ -9,16 +9,21 @@ export const HAFIF_MODEL = "haiku";  // yüksek hacimli, mekanik iş: tarama, s�
 // Modellerin yetenek profili — Anthropic'in model sayfasından (platform.claude.com/docs/en/about-claude/models/overview,
 // 7 Eki 2026). Danışman bunu "/ekip modeller yenile" ya da haftalık tazelemeyle siteden günceller; bu yalnız varsayılan.
 export const MODEL_PROFILI_VARSAYILAN = {
-  kaynak: "platform.claude.com/docs/en/about-claude/models/overview", tarih: "2026-10-07",
+  // "efor": modelin önerilen effort'u — danışman hep güncel modelin önerilen eforuyla çalışır (eforSec). Fable 5.2: 11 Kas 2026.
+  kaynak: "platform.claude.com/docs/en/about-claude/models/overview", tarih: "2026-11-11",
   modeller: [
-    { kademe: "danışman", alias: "fable", id: "claude-fable-5-1", gecikme: "yavaş", fiyat: "$10 / $50", guclu: "zorlu akıl yürütme, uzun soluklu ajan işi; Opus yüksek effort'ta yetmediğinde" },
+    { kademe: "danışman", alias: "fable", id: "claude-fable-5-2", efor: "medium", gecikme: "yavaş", fiyat: "$10 / $50", guclu: "zorlu akıl yürütme, uzun soluklu ajan işi; Opus yüksek effort'ta yetmediğinde" },
     { kademe: "uzman", alias: "opus", id: "claude-opus-5-5", gecikme: "orta", fiyat: "$4 / $20", guclu: "uzun süren ajan kodlama ve bilgi işi; çoğu iş için başlangıç modeli" },
     { kademe: "hızlı", alias: "sonnet", id: "claude-sonnet-5-5", gecikme: "hızlı", fiyat: "$2 / $10", guclu: "hız ve zekânın en iyi dengesi" },
     { kademe: "hafif", alias: "haiku", id: "claude-haiku-5-5", gecikme: "en hızlı", fiyat: "$0.10 / $0.50'den", guclu: "yüksek hacimli, gecikmeye duyarlı işler: sınıflandırma, çıkarım, yönlendirme" },
   ],
 };
 export const profilMetni = p => `Model profili (${p.kaynak}, ${p.tarih}; fiyat girdi/çıktı MTok başına):\n` +
-  p.modeller.map(m => `- ${m.kademe}: ${m.alias} (${m.id}) · ${m.gecikme} · ${m.fiyat} · ${m.guclu}`).join("\n");
+  p.modeller.map(m => `- ${m.kademe}: ${m.alias} (${m.id}) · ${m.gecikme} · ${m.fiyat}${m.efor ? ` · önerilen efor ${m.efor}` : ""} · ${m.guclu}`).join("\n");
+export const EFORLAR = ["low", "medium", "high", "xhigh", "max"];
+export const EFOR_VARSAYILAN = "medium";
+/** Modelin önerilen effort'u (saf): profilde (siteden) varsa o, yoksa medium. Danışman hep bununla çalışır. */
+export const eforSec = (profil, alias = "fable") => { const e = String(profil?.modeller?.find(m => m.alias === alias)?.efor ?? "").toLowerCase(); return EFORLAR.includes(e) ? e : EFOR_VARSAYILAN; };
 
 export const ESIK = {
   YOGUN_ISCI: 3, YOGUN_TUR: 2, YOGUN_DOSYA: 5, YOGUN_SURE_DK: 8,
@@ -262,7 +267,8 @@ export function butce(limits, now = Date.now()) {
 /** Model izcisinin (Haiku) siteden çıkardığı JSON → profil; eksik/bozuksa null (varsayılan kalır). */
 export function profilDogrula(j, tarih) {
   const m = Array.isArray(j?.modeller) ? j.modeller : [];
-  const temiz = m.map(x => ({ kademe: "", alias: String(x?.alias ?? "").toLowerCase(), id: String(x?.id ?? ""), gecikme: String(x?.gecikme ?? ""), fiyat: String(x?.fiyat ?? ""), guclu: String(x?.guclu ?? "").slice(0, 200) }))
+  const temiz = m.map(x => ({ kademe: "", alias: String(x?.alias ?? "").toLowerCase(), id: String(x?.id ?? ""), gecikme: String(x?.gecikme ?? ""), fiyat: String(x?.fiyat ?? ""), guclu: String(x?.guclu ?? "").slice(0, 200),
+    ...(EFORLAR.includes(String(x?.efor ?? "").toLowerCase()) ? { efor: String(x.efor).toLowerCase() } : {}) }))
     .filter(x => /^claude-/.test(x.id) && x.alias);
   if (!["fable", "opus", "sonnet", "haiku"].every(a => temiz.some(x => x.alias === a))) return null;
   const KAD = { fable: "danışman", opus: "uzman", sonnet: "hızlı", haiku: "hafif" };
