@@ -574,10 +574,16 @@ async function fable($, istek) {
       const r = await $.model.complete({ effort: danismanEfor, ...istek, model });
       if (r.isAnswered || r.reason === "aborted") return { ...r, model };
       son = r;
-    } catch (err) { son = { isAnswered: false, reason: String(err).slice(0, 120) }; }
+      // 2.1.327+: kota dolunca hata hemen döner. Sıradaki modele (Opus) geçmek aynı kotayı bir kez daha yakar.
+      if (kotaHatasi(r)) return { ...r, reason: "kota doldu (rate limit): sıfırlanmayı bekle", kota: true };
+    } catch (err) {
+      son = { isAnswered: false, reason: String(err).slice(0, 120) };
+      if (/usage limit|rate.?limit|429/i.test(String(err))) return { ...son, kota: true };
+    }
   }
   return son;
 }
+export const kotaHatasi = r => r?.isAnswered === false && r.reason === "api-error" && (r.error === "rate_limit" || r.status === 429);
 const notu = r => (r.model && r.model !== DANISMAN_MODEL ? { not: `fable erişilemedi, ${r.model} kullanıldı` } : {});
 
 async function sor($, soru) {

@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti, DANISMAN_ADAYLAR } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti, DANISMAN_ADAYLAR , kotaHatasi } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, MODEL_PROFILI_VARSAYILAN, eforSec, profilDogrula } from './kurallar.mjs'
 
@@ -1282,4 +1282,10 @@ test('danışman: Fable 5.2 ve güncel modelin önerilen eforu (varsayılan medi
   await $.command.run({ command: 'ekip', args: 'sor durum nedir', origin: 'user' } as never)
   await new Promise(r => setTimeout(r, 100))
   expect(eforlar).toContain('high')
+})
+
+test('kota hatası (2.1.327+): danışman sıradaki modele geçmez, kotayı ikinci kez yakmaz', () => {
+  expect(kotaHatasi({ isAnswered: false, reason: 'api-error', error: 'rate_limit', status: 429 })).toBe(true)
+  expect(kotaHatasi({ isAnswered: false, reason: 'api-error', error: 'overloaded', status: 529 })).toBe(false)
+  expect(kotaHatasi({ isAnswered: true, text: 'x' })).toBe(false)
 })
