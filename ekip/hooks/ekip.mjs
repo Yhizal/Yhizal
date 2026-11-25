@@ -335,6 +335,20 @@ export function araclariTamamla(tools, { tasarim = false, metin = "" } = {}) {
   if (/\b(python|py -|pytest|pip|npm|node|git|build|\.bat|\.exe|selftest|grep -c|xml\.etree|derle|çalıştır)/i.test(metin)) ekle("Bash");   // bitiş ölçütü bir komutsa
   return tools;
 }
+/** Oturumun araç listesinden tasarım üyesine verilecek bağlayıcı araçları (saf). Figma sunucusunun okuma/aktarma araçları ve
+ *  Claude Design (DesignSync). Silen/taşıyan araçlar ve kredi harcayan üretim araçları (görsel/video/model çalıştırma) verilmez. */
+export function tasarimAraclari(liste) {
+  const ts = (Array.isArray(liste) ? liste : []).map(t => String(t?.name ?? "")).filter(Boolean);
+  const sunucu = n => (n.startsWith("mcp__") && n.indexOf("__", 5) > 0 ? n.slice(0, n.indexOf("__", 5)) : "");
+  const arac = n => n.slice(sunucu(n).length + 2);
+  const figma = new Set(ts.filter(n => sunucu(n) && /figma|get_design_context|get_figjam/i.test(arac(n))).map(sunucu));
+  const IZINLI = /^(get_|list_|read_|whoami|html_to_figma|send_code_to_figma|generate_diagram|generate_vector_illustration|create_design_system_rules)/i;
+  const YASAK = /delete|remove|trash|purge|archive|share|branch|run_model|generate_image|video|audio/i;
+  const figmaAraclari = ts.filter(n => figma.has(sunucu(n)) && IZINLI.test(arac(n)) && !YASAK.test(arac(n))).slice(0, 20);
+  const design = ts.includes("DesignSync") ? ["DesignSync"] : [];
+  const ozet = [figmaAraclari.length ? `Figma (${figmaAraclari.length} araç: ${figmaAraclari.slice(0, 5).map(arac).join(", ")}${figmaAraclari.length > 5 ? "…" : ""})` : "", design.length ? "Claude Design (DesignSync)" : ""].filter(Boolean).join("; ");
+  return { araclar: [...figmaAraclari, ...design], ozet };
+}
 /** Metin tasarım/görsel iş mi (saf)? Tasarım üyesi (Skill + Artifact) ve plan ipucu buna bağlı. */
 // "/design" komut içinde YAZILAMAZ: uygulama, argümanında ikinci bir slash komutu olan komutu hiç göndermiyor ("A command
 // takes file @-mentions but no other … slash commands …, so nothing was sent"). Tasarım işi bu yüzden istekten anlaşılır:
@@ -957,6 +971,19 @@ async function kur($, hedef) {
   if (taslak) {
     const uyeler = butceUygula(taslak.uyeler, b.ayar).map(indir);
     for (const u of uyeler) if (u.bagimli && !uyeler.some(x => x.name === u.bagimli)) u.bagimli = "";
+    // Tasarım desteği: oturuma bağlı tasarım bağlayıcılarının (Figma, Claude Design) araçları tasarım üyelerine verilir.
+    const tasarimcilar = uyeler.filter(u => tasarimMi(`${u.name} ${u.description} ${u.gorev}`));
+    if (tasarimcilar.length) {
+      let ta = { araclar: [], ozet: "" };
+      try { ta = tasarimAraclari(await $.tool.list()); } catch {}
+      if (ta.araclar.length) {
+        for (const u of tasarimcilar) {
+          u.tools = [...new Set([...u.tools, ...ta.araclar])];
+          u.prompt += `\n\nBağlı tasarım bağlayıcıları (araç listende): ${ta.ozet}. Tasarım bağlamını okumak, taslağı Figma'ya aktarmak ya da şema üretmek işine yarıyorsa kullan; yaramıyorsa SVG dosyasıyla devam et. Kredi harcayan üretim araçlarını kullanma.`;
+        }
+        akisEkle("danisman", `tasarım bağlayıcıları tasarımcıya verildi: ${ta.ozet}`, "danışman");
+      }
+    }
     taslak = { ...taslak, uyeler, butce: b.seviye };
   }
   await $.state.set(TASLAK, taslak

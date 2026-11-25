@@ -1,5 +1,5 @@
 import { test, expect, mock } from 'claude-code/testing'
-import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti, DANISMAN_ADAYLAR , kotaHatasi } from './ekip.mjs'
+import { ROLLER, SABLON_EKIPLER, DANISMAN_MODEL, ISCI_MODEL, spec, durumu, incelemePrompt, sure, planDogrula, atamalar, jsonAl, ilerleme, temaSec, TEMALAR, serit, piksel, SERIT_W, firmwareMi, VARSAYILAN_EKIP, turAdimi, kararOku, sonKontrolPrompt, elleKontrolEdilecek, semaVerisi, denetmenIstemi, denetmenPlanDogrula, uygulaPlan, akisEkle, ozetSatiri, eylemMetni, kaynakSec, yedekRapor, baglamTopla, turetilmisAkis, sonucMetni, sessizKosular, bekleyenSonuc, tasarimMi, maddeSatirlari, maddeleriBirlestir, maddeListesi, acikMaddeler, kesikMi, devamHedefi, otoDevamKarari, OTO_DEVAM_MAX, yedekSonRapor, sonRaporGecerli, istekMetni, gorselYollariBul, kararsizRet, araclariTamamla, engelliCikti, DANISMAN_ADAYLAR , kotaHatasi, tasarimAraclari } from './ekip.mjs'
 import { sadeSvg as semaSvg, ikonSec, adimCumlesi, eylemOzeti } from './sade.mjs'
 import { KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, MODEL_PROFILI_VARSAYILAN, eforSec, profilDogrula } from './kurallar.mjs'
 
@@ -1288,4 +1288,15 @@ test('kota hatası (2.1.327+): danışman sıradaki modele geçmez, kotayı ikin
   expect(kotaHatasi({ isAnswered: false, reason: 'api-error', error: 'rate_limit', status: 429 })).toBe(true)
   expect(kotaHatasi({ isAnswered: false, reason: 'api-error', error: 'overloaded', status: 529 })).toBe(false)
   expect(kotaHatasi({ isAnswered: true, text: 'x' })).toBe(false)
+})
+
+test('tasarım bağlayıcıları: Figma okuma/aktarma araçları ve Claude Design tasarımcıya verilir; silen ve kredi harcayan araçlar verilmez', () => {
+  const F = 'mcp__26ae5d07-0000__', M = 'mcp__737da3e9-1111__'
+  const liste = ['Read', 'DesignSync', F + 'html_to_figma', F + 'get_design_context', F + 'get_comments', F + 'generate_vector_illustration', F + 'generate_image', F + 'weave_run_model', F + 'create_branch',
+    M + 'images_generate_svg', M + 'video_generate', M + 'trash_purge', 'mcp__claude_ai_Gmail__send_message'].map(name => ({ name, description: '', mcp: name.startsWith('mcp__') }))
+  const t = tasarimAraclari(liste)
+  expect(t.araclar).toEqual([F + 'html_to_figma', F + 'get_design_context', F + 'get_comments', F + 'generate_vector_illustration', 'DesignSync'])
+  expect(t.ozet).toMatch(/^Figma \(4 araç: html_to_figma, get_design_context, get_comments, generate_vector_illustration\); Claude Design \(DesignSync\)$/)
+  expect(tasarimAraclari([{ name: 'Read' }, { name: M + 'images_generate_svg' }])).toEqual({ araclar: [], ozet: '' })   // Figma yoksa hiçbir bağlayıcı aracı eklenmez
+  expect(tasarimAraclari(undefined)).toEqual({ araclar: [], ozet: '' })
 })
