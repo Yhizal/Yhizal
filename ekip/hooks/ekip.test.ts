@@ -1300,3 +1300,21 @@ test('tasarım bağlayıcıları: Figma okuma/aktarma araçları ve Claude Desig
   expect(tasarimAraclari([{ name: 'Read' }, { name: M + 'images_generate_svg' }])).toEqual({ araclar: [], ozet: '' })   // Figma yoksa hiçbir bağlayıcı aracı eklenmez
   expect(tasarimAraclari(undefined)).toEqual({ araclar: [], ozet: '' })
 })
+
+test('senaryo: ekip ajanının sınır dışı komutu çalışmadan reddedilir, sohbete bildirilir; olağan komut geçer', async ($, on) => {
+  const { logs } = sohbetKur($, on)
+  on('model.complete', () => ({ value: { isAnswered: true, usage: {}, text: 'x' } }) as never)
+  on('agent.spawn', (_$: unknown, e: any) => ({ model: e.model ?? 'claude-sonnet-5-5', agentId: 'k1' }) as never)
+  const calisan: string[] = []
+  on('tool.call', (_$: unknown, e: any) => (calisan.push(String(e.command)), { result: 'ok' }) as never)
+  await $.session.start({ cwd: '/proje', surface: 'terminal', isInteractive: true } as never)
+  await $.agent.spawn({ prompt: 'Kuru çalıştırma: scripts/seed_tank_panolar.py betiğini çalıştır, sayımı raporla', subagentType: 'ekip:hizli-isci', description: 'kuru çalıştırma' } as never)
+  const r1: any = await $.tool.call({ tool: 'Bash', command: 'python scripts/seed_plc_labels.py', agentId: 'k1' } as never)
+  expect(JSON.stringify(r1)).toMatch(/\[ekip sınır\] görevde adı geçmeyen veri betiği: seed_plc_labels/)
+  expect(calisan).toEqual([])                                                    // komut hiç çalışmadı
+  const r2: any = await $.tool.call({ tool: 'Bash', command: 'python scripts/seed_tank_panolar.py', agentId: 'k1' } as never)
+  expect(JSON.stringify(r2)).not.toMatch(/ekip sınır/)
+  expect(calisan).toEqual(['python scripts/seed_tank_panolar.py'])              // görevde adı geçen betik çalışır
+  await new Promise(r => setTimeout(r, 50))
+  expect(logs.join('\n')).toMatch(/⛔ Sınır dışı işlem engellendi — hizli-isci[\s\S]*seed_plc_labels/)
+})

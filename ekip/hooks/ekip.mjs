@@ -1,6 +1,7 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
 import { sadeSvg, yuzde5, sureKisa, eylemOzeti } from "./sade.mjs";
+import { KART_DOSYA, SINIR_KURALLARI, kartDogrula, kartMetni, komutDenetle, yazmaDenetle, betikler, ustDizinler } from "./sinir.mjs";
 import { KURALLAR, KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula, eforSec } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -105,7 +106,66 @@ Mevcut kod dosyasında yalnız değişen bloğu düzenle. Çıktında ürettiği
   },
 };
 // Her işçinin talimatına kademe sınırı ve çıktı biçimi eklenir (kurallar.mjs §1, §4).
-for (const r of Object.values(ROLLER)) if (r.rol === "isci") r.prompt += `\n\n${KADEME_EK[r.model]}\n${ISCI_FORMAT}`;
+for (const r of Object.values(ROLLER)) if (r.rol === "isci") r.prompt += `\n\n${KADEME_EK[r.model]}\n${ISCI_FORMAT}\n\n${SINIR_KURALLARI}`;
+
+// ── Proje sınırı: hangi projede çalışıldığı ve nereye dokunulamayacağı (sinir.mjs). Kart proje kökündeki
+// .claude/ekip-proje.json'dan okunur; yoksa yalnız genel kurallar geçerlidir. ──
+let aktifKart;                       // undefined: henüz bakılmadı · null: proje belirlenemedi · nesne: kart
+const gorevMetni = new Map();        // koşu → görevin tam metni (açık izinler buradan okunur)
+const sinirBildirilen = new Set();
+/** Konuşmadaki araç çağrılarından dosya yolları (saf): proje kökünü bulmak için. */
+export function dosyaYollari(mesajlar) {
+  const out = [];
+  for (const m of (Array.isArray(mesajlar) ? mesajlar.slice(-80) : [])) for (const u of m.toolUses ?? []) {
+    const y = u.input?.file_path ?? u.input?.path ?? u.input?.notebook_path;
+    if (typeof y === "string" && /^([A-Za-z]:[\\/]|\/)/.test(y)) out.push(y);
+  }
+  return out;
+}
+async function projeKokuBul($, yollar) {
+  const bakilan = new Map();
+  const isaret = async d => {
+    if (bakilan.has(d)) return bakilan.get(d);
+    let v = false;
+    try { v = (await $.fs.exists(`${d}/${KART_DOSYA}`)) || (await $.fs.exists(`${d}/.git`)); } catch {}
+    bakilan.set(d, v);
+    return v;
+  };
+  const cwd = projeKlasoru.replace(/\\/g, "/").replace(/\/$/, "");
+  if (cwd && await isaret(cwd)) return cwd;
+  const say = new Map();
+  for (const y of yollar.slice(-30)) for (const d of ustDizinler(y)) {
+    if (bakilan.size > 120) break;
+    if (await isaret(d)) { say.set(d, (say.get(d) ?? 0) + 1); break; }
+  }
+  return [...say].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "";
+}
+async function kartYukle($) {
+  let ms = [];
+  try { ms = await $.session.messages(); } catch {}
+  const kok = await projeKokuBul($, dosyaYollari(ms));
+  if (!kok) { aktifKart = null; return null; }
+  let j = null;
+  try { j = JSON.parse(String(await $.fs.read(`${kok}/${KART_DOSYA}`))); } catch {}
+  aktifKart = kartDogrula(j, kok);
+  return aktifKart;
+}
+/** Ekip ajanının araç çağrısı sınırı aşıyor mu: aşıyorsa neden. Komuttaki betiklerin kaynağı da okunur (varsayılan bağlantı). */
+async function sinirKontrol($, e, kosu) {
+  if (aktifKart === undefined) await kartYukle($);
+  const arac = String(e.tool ?? "");
+  if (/^(Edit|Write|NotebookEdit|MultiEdit)$/.test(arac)) return yazmaDenetle(e.file_path ?? e.notebook_path, aktifKart);
+  if (!/^(Bash|PowerShell)$/.test(arac)) return null;
+  const komut = String(e.command ?? "");
+  let kaynak = "";
+  const dizinler = [aktifKart?.kok, ...[...komut.matchAll(/\bcd\s+(?:\/d\s+)?["']?([^"';&|\n]+)["']?/gi)].map(m => m[1].trim())].filter(Boolean);
+  for (const b of betikler(komut).slice(0, 3)) for (const yol of [b.yol, ...dizinler.map(d => `${d}/${b.yol}`)]) {
+    try { const t = String(await $.fs.read(yol)); if (t) { kaynak += `\n${t.slice(0, 200_000)}`; break; } } catch {}
+  }
+  let hedef = "";
+  try { hedef = (await aktifEkip($)).hedef ?? ""; } catch {}
+  return komutDenetle({ komut, gorev: `${gorevMetni.get(kosu.id) ?? kosu.aciklama ?? ""}\n${hedef}`, kart: aktifKart, betikKaynak: kaynak });
+}
 
 export const SABLON_EKIPLER = [
   { ad: "Firmware ekibi", amac: "STM32 firmware geliştirme, test ve inceleme", uyeler: ["danisman", "firmware-analist", "test-yazici", "kod-inceleyici", "hizli-isci", "hafif-isci"] },
@@ -375,7 +435,7 @@ export function planDogrula(j) {
     uyeler.push({
       name, rol: "isci", model, maxTurns: 30,
       description: tek(u.aciklama || u.ad, 150),
-      prompt: `${tek(u.talimat || u.aciklama || "", 1500)}\n\nMevcut dosyada yalnız değişen bloğu düzenle.\n${KADEME_EK[model]}\n${ISCI_FORMAT}`,
+      prompt: `${tek(u.talimat || u.aciklama || "", 1500)}\n\nMevcut dosyada yalnız değişen bloğu düzenle.\n${KADEME_EK[model]}\n${ISCI_FORMAT}\n\n${SINIR_KURALLARI}`,
       tools: tools.length ? tools : ["Read", "Grep", "Glob"],
       ...(tools.some(t => t === "Edit" || t === "Write") ? { permissionMode: "acceptEdits" } : {}),
       gorev: tek(u.gorev, 1500) + (u.bitis_olcutu ? `\nBitiş ölçütü: ${tek(u.bitis_olcutu, 300)}` : "")
@@ -632,6 +692,9 @@ ${KURALLAR}
 
 "degerlendirme" alanı: iş yoğunsa §4'teki yoğun rapor (Sonuç, Karşılaştırma tablosu, Bulgular, Açık uçlar; üye tablosunu YAZMA, telemetriden eklenir), basitse ≤5 satır düz metin. Son satır: "Karar: devam|bitir — <tek satır gerekçe>".
 ${KARAR_ILKESI}
+
+${SINIR_KURALLARI}
+İşçinin "SINIR:" satırı = bir komut proje sınırı nedeniyle çalıştırılmadı. O adımı YAPILMADI say. Görev sınır içindeyse (doğru betik, bu projenin ucu) betiğin tam adını ve bağlantıyı açıkça yazarak yeniden ata; kartın YASAK listesine giriyorsa yeniden atama, "kullanicidan"a yaz. "ÇALIŞTIRILDI:" satırı olmayan veri/servis adımını yapılmış sayma.
 
 İstek maddeleri: her maddenin durumunu işçilerin "MADDE #n" satırlarına ve kanıta göre ver. Yapılmamış ya da kısmen kalan her madde için "sonraki" ile yeni görev ata (ön koşul eksikse önce ön koşulu çözen görevi; işçi "KARAR GEREKİR" dediyse kararı SEN ver ve görevi buna göre yaz). Bir maddeyi açık bırakmanın tek geçerli nedeni DIŞ engeldir (karar ilkesi 3); "kullanıcı kararı bekleniyor" geçerli neden değildir. İşçi "dokunmadım/yapmadım" dediyse ön koşula bakıp bakmadığını sorgula; bakmadıysa yeniden ata. "kullanicidan" yalnız DIŞ engeller içindir (ör. "uzak depo adresi nedir?"); tasarım/teknik seçim sorusu YAZMA. "bitti": true yalnız tüm maddeler yapıldıysa ya da kalanlar DIŞ engelliyse; tur sınırı yüzünden kalan iş varsa "bitti": false ve "sonraki" dolu olsun.
 Yalnız JSON döndür: {"degerlendirme":"markdown","bitti":true|false,"yogunluk":"basit|yogun","sonraki":[{"uye":"üye adı","model":"opus|sonnet","gorev":"somut görev","bitis_olcutu":"..."}],"maddeler":[{"no":1,"durum":"yapildi|kismen|yapilmadi","not":"kanıt ya da gerekçe"}],"kullanicidan":["yalnız DIŞ engel sorusu"]}`;
@@ -949,7 +1012,10 @@ async function kur($, hedef) {
   }
   const tasarimNotu = tasarimMi(hedef) ? "\n\nTASARIM İŞİ: kullanıcı /design ile /ekip'i aynı mesajda kullanamaz; tasarım kısmını ekibe sen ver. En az bir üyeyi tasarım üyesi yap (ad: \"tasarimci\"; araclar: Read, Glob, Edit, Write, Bash, Skill, Artifact; model: opus). Talimatına design becerilerini Skill aracıyla çağırmasını yaz (design:design-critique, design:design-system, design:ux-copy, design:accessibility-review, design:design-handoff). Görsel varlık SVG olarak projeye yazılır; kod uygulaması ayrı bir üyede, tasarım çıktısına bağımlı olsun." : "";
   const planNotu = planModu ? "\n\nPLAN MODU AÇIK: kullanıcı oturumu plan modunda, ajanlar dosya değiştiremez. Her görevi salt-okur analiz olarak yaz; bitis_olcutu somut bir rapor (bulgu + önerilen değişiklik) olsun; Edit/Write/Bash verme." : "";
-  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${tasarimNotu}${planNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
+  // Proje kimliği ve sınırları: ekip hangi projede olduğunu ve nereye dokunamayacağını bilerek başlar.
+  const kart = await kartYukle($);
+  const sinirNotu = `\n\n${kartMetni(kart)}\nVeri betiği ya da servis/veritabanı komutu içeren görevde betiğin TAM dosya adını ve bağlanacağı ucu yaz (ajan görevde adı geçmeyen veri betiğini çalıştıramaz); kuru çalıştırma varsayılandır, yazma yalnız kullanıcı istediyse. Kartın YASAK listesindeki hiçbir şeyi göreve yazma.`;
+  const temel = `Hedef: ${hedef}${baglamBolumu(bag)}${tasarimNotu}${planNotu}${sinirNotu}\n\n${butceSatiri(b)}${stratejiBolumu(st)}`;
   let r = await fable($, { system: KUR_SISTEM, prompt: temel, maxTokens: 9000, timeoutMs: 240_000 });
   let taslak = r.isAnswered ? planDogrula(jsonAl(r.text)) : null;
   // Okunamayan cevap (sohbet cevabı, soru, kod bloğu, kesik JSON): bir kez, yalnız-JSON uyarısıyla yeniden sor.
@@ -971,6 +1037,7 @@ async function kur($, hedef) {
   if (taslak) {
     const uyeler = butceUygula(taslak.uyeler, b.ayar).map(indir);
     for (const u of uyeler) if (u.bagimli && !uyeler.some(x => x.name === u.bagimli)) u.bagimli = "";
+    for (const u of uyeler) u.prompt += `\n\n${kartMetni(kart)}`; // her üye proje kartını sistem talimatında taşır
     // Tasarım desteği: oturuma bağlı tasarım bağlayıcılarının (Figma, Claude Design) araçları tasarım üyelerine verilir.
     const tasarimcilar = uyeler.filter(u => tasarimMi(`${u.name} ${u.description} ${u.gorev}`));
     if (tasarimcilar.length) {
@@ -1023,7 +1090,7 @@ async function onayla($) {
     return;
   }
   if (taslak.yogun) izlemeyiBaslat($);
-  await sohbeteYaz($, `Ekip kuruldu — ${ad}`, `${tek(taslak.amac, 140)}\n${taslak.uyeler.map(u => `• ${u.name} (${kademe(u.model)}): ${tek(u.gorev, 90)}${u.bagimli ? ` — ${u.bagimli} bitince` : ""}`).join("\n")}${devredilenSay ? `\n${devredilenSay} ajanın başlatması izin denetimi yüzünden ana modele devredildi; birazdan başlar.` : ""}\nSonuç bitince buraya yazılır.`);
+  await sohbeteYaz($, `Ekip kuruldu — ${ad}`, `Proje: ${aktifKart ? `${aktifKart.ad} — ${aktifKart.kok}${aktifKart.tanimli ? "" : " (proje kartı yok: yalnız genel sınırlar)"}` : "belirlenemedi (ajanlar veri/servis komutu çalıştırmadan önce projeyi doğrular)"}\n${tek(taslak.amac, 140)}\n${taslak.uyeler.map(u => `• ${u.name} (${kademe(u.model)}): ${tek(u.gorev, 90)}${u.bagimli ? ` — ${u.bagimli} bitince` : ""}`).join("\n")}${devredilenSay ? `\n${devredilenSay} ajanın başlatması izin denetimi yüzünden ana modele devredildi; birazdan başlar.` : ""}\nSonuç bitince buraya yazılır.`);
   const sonnet = taslak.uyeler.filter(u => u.model === HIZLI_MODEL).length;
   $.ui.toast(`◆ ${ad}: Fable ${taslak.uyeler.length} üyeye görev atadı (${taslak.uyeler.length - sonnet} Opus, ${sonnet} Sonnet · bütçe ${taslak.butce ?? "normal"}${taslak.yogun ? " · yoğun iş: ara brif + tablolu rapor" : ""})`);
 }
@@ -1407,6 +1474,8 @@ async function elleSonKontrol($) {
 
 async function kosuEkle($, id, tip, aciklama, model, tur, beklenenDk) {
   const kosu = { id, tip, aciklama: tek(aciklama, 140), model, baslangic: Date.now(), durum: "calisiyor", adim: 0, ...(tur ? { tur } : {}), ...(beklenenDk ? { beklenenDk } : {}) };
+  if (!gorevMetni.has(id)) gorevMetni.set(id, String(aciklama ?? ""));
+  if (gorevMetni.size > 200) gorevMetni.delete(gorevMetni.keys().next().value);
   akisEkle(tip.replace(new RegExp(`^${P}:`), ""), `başladı — ${tek(aciklama, 60)}`, kademe(model));
   canliIs.set(id, kosu.baslangic); // sayaç bunu await'siz görür: sayaç iptali ile yeni iş arasında yarış kalmaz
   await kosularGuncelle($, k => (k.some(x => x.id === id) ? null : [...k, kosu].slice(-MAX_KOSU)));
@@ -1734,6 +1803,7 @@ export function register(on) {
     // Ana modelin, ekipten devralıp başlattığı ajan: koşu turuna bağlanır (tur akışı ve son rapor sürer).
     const d = devredilen.get(e.subagentType);
     if (d && r.agentId) devredilen.delete(e.subagentType);
+    if (r.agentId) gorevMetni.set(r.agentId, String(d?.gorev ?? e.prompt ?? e.description ?? "")); // sınır denetimi tam görev metnine bakar
     if (r.agentId) await kosuEkle($, r.agentId, e.subagentType || "genel", d?.gorev ?? (e.description || e.prompt), r.model ?? d?.model, d?.tur, d?.beklenenDk);
     return r;
   });
@@ -1790,6 +1860,21 @@ export function register(on) {
         sonEtkinlik.set(kosu.id, Date.now());
         sessizUyarilan.delete(kosu.id);
         const uye = kosu.tip.replace(new RegExp(`^${P}:`), ""), m = eylemMetni(e);
+        // Proje sınırı: ekip ajanının komutu/yazması çalışmadan önce denetlenir (denetim hata verirse çağrı engellenmez).
+        if (kosu.tip.startsWith(`${P}:`)) {
+          let neden = null;
+          try { neden = await sinirKontrol($, e, kosu); } catch {}
+          if (neden) {
+            akisEkle(uye, `SINIR: ${neden}`, kademe(kosu.model));
+            const anahtar = `${kosu.id}:${neden}`;
+            if (!sinirBildirilen.has(anahtar)) {
+              sinirBildirilen.add(anahtar);
+              $.ui.toast(`⛔ ${uye}: sınır dışı işlem engellendi`);
+              void sohbeteYaz($, `⛔ Sınır dışı işlem engellendi — ${uye}`, `Neden: ${neden}\nKomut: ${tek(e.command ?? e.file_path ?? "", 220)}\nProje: ${aktifKart ? `${aktifKart.ad} (${aktifKart.kok})` : "belirlenemedi"}. Hiçbir şey çalıştırılmadı.`);
+            }
+            return { deny: `[ekip sınır] ${neden}. Bu işlem çalıştırılmadı. Başka yoldan deneme; "SINIR: <ne gerekiyordu, neden>" satırıyla raporla ve bu adımı YAPILMADI say.` };
+          }
+        }
         sonEylem.set(kosu.id, m);
         const say = eylemSayac.get(kosu.id) ?? {};
         say[e.tool ?? e.name ?? "araç"] = (say[e.tool ?? e.name ?? "araç"] ?? 0) + 1;
