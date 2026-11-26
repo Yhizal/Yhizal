@@ -1,7 +1,7 @@
 import { sahneKaresi, hucreler, SAHNE_W, SAHNE_R } from "./sahne.mjs";
 import { svgSerit, svgDusunuyor, yuvarla } from "./svgsahne.mjs";
 import { sadeSvg, yuzde5, sureKisa, eylemOzeti } from "./sade.mjs";
-import { KART_DOSYA, SINIR_KURALLARI, kartDogrula, kartMetni, komutDenetle, yazmaDenetle, betikler, ustDizinler } from "./sinir.mjs";
+import { KART_DOSYA, SINIR_KURALLARI, kartDogrula, kartMetni, komutDenetle, yazmaDenetle, betikler, ustDizinler, envAdlari, yerelImportlar, envDosyasi, envDosyaYollari } from "./sinir.mjs";
 import { KURALLAR, KARAR_ILKESI, ISCI_FORMAT, KADEME_EK, ESIK, UZMAN_MODEL, HIZLI_MODEL, modelSec, kademe, dosyaCakismalari, yogunMu, bayrak, t2Mi, brifIzinli, uyeTablosu, brifDogrula, brifMetni, butce, butceUygula, BUTCE_AYAR, HAFIF_MODEL, MODEL_PROFILI_VARSAYILAN, profilMetni, projeProfili, stratejiEskiMi, stratejiMetni, profilDogrula, eforSec } from "./kurallar.mjs";
 
 const P = "ekip";
@@ -150,6 +150,56 @@ async function kartYukle($) {
   aktifKart = kartDogrula(j, kok);
   return aktifKart;
 }
+/** Komuttaki betiklerin bağlantı kaynakları: betiğin kendisi, içe aktardığı yerel modüller (2 kat), okuduğu yapılandırma
+ *  ve .env dosyaları, kodda okunan ortam değişkenlerinin .env'deki ve bu süreçteki değerleri. [{ etiket, metin }] */
+async function baglantiKaynaklari($, komut, dizinler) {
+  const okunan = new Set(), out = [];
+  const oku = async (yol, kokler) => {
+    for (const y of [yol, ...kokler.map(d => `${d}/${yol}`)]) {
+      const n = y.replace(/\\/g, "/");
+      if (okunan.has(n)) return null;
+      try { const t = String(await $.fs.read(n)); if (t) { okunan.add(n); return { yol: n, metin: t.slice(0, 200_000) }; } } catch {}
+    }
+    return null;
+  };
+  // 1) betikler ve içe aktardıkları (en çok 2 kat, 14 dosya)
+  let sira = betikler(komut).slice(0, 3).map(b => ({ yol: b.yol, kat: 0 }));
+  const kodlar = [];
+  while (sira.length && kodlar.length < 14) {
+    const { yol, kat } = sira.shift();
+    const d = await oku(yol, dizinler);
+    if (!d) continue;
+    kodlar.push(d);
+    out.push({ etiket: kat ? `içe aktarılan ${d.yol}` : d.yol, metin: d.metin });
+    if (kat < 2) sira.push(...yerelImportlar(d.metin, d.yol).map(y => ({ yol: y, kat: kat + 1 })));
+  }
+  // 2) ortam değişkenleri: kodda okunan adlar; değerleri .env dosyalarından ve bu süreçten
+  const adlar = new Set(kodlar.flatMap(d => envAdlari(d.metin)));
+  const komutIci = new Set([...komut.matchAll(/(?:^|\s)([A-Z_][A-Z0-9_]*)=/g)].map(m => m[1]));
+  for (const yol of envDosyaYollari(komut)) {
+    const d = await oku(yol, dizinler);
+    if (!d) continue;
+    const h = envDosyasi(d.metin);
+    const ilgili = Object.entries(h).filter(([a]) => adlar.has(a) && !komutIci.has(a));
+    if (ilgili.length) out.push({ etiket: `${d.yol} → ${ilgili.map(([a]) => a).join(", ")}`, metin: ilgili.map(([a, v]) => `${a}=${v}`).join("\n") });
+  }
+  const surec = await surecOrtami($);
+  const ilgiliSurec = Object.entries(surec).filter(([a, v]) => v && (adlar.has(a) || !adlar.size) && !komutIci.has(a));
+  if (ilgiliSurec.length) out.push({ etiket: `ortam değişkeni ${ilgiliSurec.map(([a]) => a).join(", ")}`, metin: ilgiliSurec.map(([a, v]) => `${a}=${v}`).join("\n") });
+  return out;
+}
+/** Ajanın kabuğunun devraldığı yaygın bağlantı değişkenleri (Claude Code süreci ortamı). Adlar sabit: motor yalnız düz adı okur. */
+async function surecOrtami($) {
+  const h = {};
+  const al = async (ad, p) => { try { h[ad] = (await p) ?? ""; } catch {} };
+  await Promise.all([
+    al("DB_URL", $.env.get("DB_URL")), al("DATABASE_URL", $.env.get("DATABASE_URL")), al("PGHOST", $.env.get("PGHOST")),
+    al("PGPORT", $.env.get("PGPORT")), al("POSTGRES_HOST", $.env.get("POSTGRES_HOST")), al("POSTGRES_PORT", $.env.get("POSTGRES_PORT")),
+    al("SQLALCHEMY_DATABASE_URI", $.env.get("SQLALCHEMY_DATABASE_URI")), al("MQTT_HOST", $.env.get("MQTT_HOST")), al("MQTT_PORT", $.env.get("MQTT_PORT")),
+    al("API_URL", $.env.get("API_URL")), al("BASE_URL", $.env.get("BASE_URL")),
+  ]);
+  return h;
+}
 /** Ekip ajanının araç çağrısı sınırı aşıyor mu: aşıyorsa neden. Komuttaki betiklerin kaynağı da okunur (varsayılan bağlantı). */
 async function sinirKontrol($, e, kosu) {
   if (aktifKart === undefined) await kartYukle($);
@@ -157,11 +207,8 @@ async function sinirKontrol($, e, kosu) {
   if (/^(Edit|Write|NotebookEdit|MultiEdit)$/.test(arac)) return yazmaDenetle(e.file_path ?? e.notebook_path, aktifKart);
   if (!/^(Bash|PowerShell)$/.test(arac)) return null;
   const komut = String(e.command ?? "");
-  let kaynak = "";
-  const dizinler = [aktifKart?.kok, ...[...komut.matchAll(/\bcd\s+(?:\/d\s+)?["']?([^"';&|\n]+)["']?/gi)].map(m => m[1].trim())].filter(Boolean);
-  for (const b of betikler(komut).slice(0, 3)) for (const yol of [b.yol, ...dizinler.map(d => `${d}/${b.yol}`)]) {
-    try { const t = String(await $.fs.read(yol)); if (t) { kaynak += `\n${t.slice(0, 200_000)}`; break; } } catch {}
-  }
+  const dizinler = [...[...komut.matchAll(/\bcd\s+(?:\/d\s+)?["']?([^"';&|\n]+)["']?/gi)].map(m => m[1].trim()), aktifKart?.kok].filter(Boolean);
+  const kaynak = betikler(komut).length ? await baglantiKaynaklari($, komut, dizinler) : [];
   let hedef = "";
   try { hedef = (await aktifEkip($)).hedef ?? ""; } catch {}
   return komutDenetle({ komut, gorev: `${gorevMetni.get(kosu.id) ?? kosu.aciklama ?? ""}\n${hedef}`, kart: aktifKart, betikKaynak: kaynak });

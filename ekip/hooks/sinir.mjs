@@ -111,8 +111,57 @@ export function komutDenetle({ komut, gorev = "", kart, betikKaynak = "" }) {
   if (!yayinIstendi && (YAYIN.test(k) || bs.some(b => YAYIN_BETIGI.test(b.ad)))) return "yayın ya da uzak sistem komutu (deploy / ssh / git push / prod compose); görevde açıkça istenmemiş";
   for (const b of bs) if (VERI_BETIGI.test(b.ad) && !gn.includes(b.ad.toLowerCase())) return `görevde adı geçmeyen veri betiği: ${b.ad} (görev hangi betiği istiyorsa tam adıyla onu çalıştır)`;
   if (bs.length && YAZMA_BAYRAGI.test(k) && !/apply|uygula|kal[ıi]c[ıi]|yaz(s[ıi]n|[ıi]lsın)?\b|commit|force/i.test(g)) return "yazma bayrağı (--apply / --force / --yes) görevde istenmemiş; önce kuru çalıştır";
-  if (betikKaynak && !BAGLANTI_VERILMIS.test(k)) for (const u of y.uclar) if (ucGeciyor(betikKaynak, u)) return `betiğin varsayılan bağlantısı yasak uca gidiyor: ${u}. Bağlantıyı açıkça ver (--db / --url / --host) ya da çalıştırma`;
+  // Betiğin bağlantı kaynakları: kendisi, içe aktardığı yerel modüller, okuduğu .env dosyaları, ortam değişkenleri.
+  const kaynaklar = Array.isArray(betikKaynak) ? betikKaynak : betikKaynak ? [{ etiket: "betik", metin: betikKaynak }] : [];
+  if (!BAGLANTI_VERILMIS.test(k)) for (const s of kaynaklar) for (const u of y.uclar) if (ucGeciyor(s.metin, u))
+    return `betiğin bağlantısı yasak uca gidiyor: ${u} (kaynak: ${s.etiket}). Bağlantıyı açıkça bu projenin ucuna ver (--db / --url / --host ya da DB_URL=…) ya da çalıştırma`;
   return null;
+}
+
+// ── Bağlantı kaynağı izleme (saf): betik adresi kendi içinde değil, ortam değişkeninden ya da başka dosyadan alıyorsa ──
+/** Kaynakta okunan ortam değişkeni adları: os.environ / getenv / process.env / $env: / ${X} / pydantic Settings alanları. */
+export function envAdlari(kaynak) {
+  const t = String(kaynak ?? ""), ad = new Set();
+  const D = [/environ(?:\.get)?\s*[\[(]\s*["']([A-Z_][A-Z0-9_]*)["']/g, /getenv\s*\(\s*["']([A-Z_][A-Z0-9_]*)["']/g, /process\.env(?:\.|\[\s*["'])([A-Z_][A-Z0-9_]*)/g,
+    /\$env:([A-Za-z_][A-Za-z0-9_]*)/g, /\$\{([A-Z_][A-Z0-9_]*)(?::?-[^}]*)?\}/g, /%([A-Z_][A-Z0-9_]{2,})%/g, /env\s*\(\s*["']([A-Z_][A-Z0-9_]*)["']/g];
+  for (const r of D) for (const m of t.matchAll(r)) ad.add(m[1].toUpperCase());
+  // pydantic BaseSettings: alan adı büyük harfle ortam değişkenidir (db_url → DB_URL)
+  if (/BaseSettings/.test(t)) for (const m of t.matchAll(/^\s+([a-z_][a-z0-9_]*)\s*:\s*[\w\[\], |]+=/gm)) ad.add(m[1].toUpperCase());
+  return [...ad].slice(0, 40);
+}
+/** Kaynağın içe aktardığı YEREL modüller (aday dosya yolları, saf). Python ve JS; paket kütüphaneleri ayıklanmaz, dosya yoksa okunmaz. */
+export function yerelImportlar(kaynak, betikYolu = "") {
+  const t = String(kaynak ?? ""), dir = String(betikYolu).replace(/\\/g, "/").split("/").slice(0, -1).join("/");
+  const out = [];
+  for (const m of t.matchAll(/^\s*from\s+(\.*)([\w.]*)\s+import\s+([\w, ]+)/gm)) {
+    const [, nokta, mod, adlar] = m;
+    const taban = nokta ? [dir, ...Array(Math.max(0, nokta.length - 1)).fill("..")].filter(Boolean).join("/") : "";
+    const yol = [taban, mod.replace(/\./g, "/")].filter(Boolean).join("/");
+    if (yol) out.push(`${yol}.py`, `${yol}/__init__.py`);
+    for (const a of adlar.split(",").map(s => s.trim()).filter(Boolean)) out.push(`${[yol || taban, a].filter(Boolean).join("/")}.py`);
+  }
+  for (const m of t.matchAll(/^\s*import\s+([\w.]+)/gm)) out.push(`${m[1].replace(/\./g, "/")}.py`, `${m[1].replace(/\./g, "/")}/__init__.py`);
+  for (const m of t.matchAll(/(?:require\(|from\s+|import\s*\()\s*["'](\.{1,2}\/[^"']+)["']/g)) { const y = [dir, m[1].replace(/^\.\//, "")].filter(Boolean).join("/"); out.push(y, `${y}.js`, `${y}.mjs`, `${y}.ts`, `${y}/index.js`); }
+  // betiğin açıkça açtığı yapılandırma dosyaları
+  for (const m of t.matchAll(/["']([\w.\-\/\\]*\.(?:env|ini|cfg|conf|toml|ya?ml|json))["']/g)) out.push(m[1]);
+  for (const m of t.matchAll(/["']([\w.\-\/\\]*\.env(?:\.[\w-]+)?)["']/g)) out.push(m[1]);
+  return [...new Set(out)].slice(0, 40);
+}
+/** .env metnini { AD: değer } haritasına çevirir (saf). */
+export function envDosyasi(metin) {
+  const h = {};
+  for (const sat of String(metin ?? "").split(/\r?\n/)) {
+    const m = sat.match(/^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)$/);
+    if (m) h[m[1].toUpperCase()] = m[2].replace(/\s+#.*$/, "").replace(/^["']|["']$/g, "");
+  }
+  return h;
+}
+/** Komutun yüklediği ortam dosyaları (saf): --env-file X, source X, . X, set -a … Varsayılanlar proje kökündeki .env aileleri. */
+export function envDosyaYollari(komut) {
+  const k = String(komut ?? ""), out = [];
+  for (const m of k.matchAll(/--env-file[=\s]+["']?([^\s"';&|]+)/g)) out.push(m[1]);
+  for (const m of k.matchAll(/(?:^|[;&|]\s*)(?:source|\.)\s+["']?([^\s"';&|]+)/g)) out.push(m[1]);
+  return [...new Set([...out, ".env", ".env.local", ".env.dev", ".env.development"])];
 }
 
 /** Ajanın dosya yazması proje sınırında mı (saf)? Kök dışı yazma reddedilir; geçici dizinler ve izinli dış dizinler serbest. */

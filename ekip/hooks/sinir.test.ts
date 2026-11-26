@@ -1,5 +1,5 @@
 import { test, expect } from 'claude-code/testing'
-import { SINIR_KURALLARI, kartDogrula, kartMetni, komutDenetle, yazmaDenetle, betikler, ucGeciyor, ustDizinler } from './sinir.mjs'
+import { SINIR_KURALLARI, kartDogrula, kartMetni, komutDenetle, yazmaDenetle, betikler, ucGeciyor, ustDizinler, envAdlari, yerelImportlar, envDosyasi, envDosyaYollari } from './sinir.mjs'
 
 const TANK = kartDogrula({ ad: 'TankSCADA', amac: 'tank platformu',
   izinli: { uclar: ['127.0.0.1:15433 (verify DB)'] },
@@ -13,7 +13,7 @@ test('25.11.2026 olayı: görevde adı geçmeyen veri betiği ve varsayılanı y
   expect(komutDenetle({ komut: 'python -m scripts.seed_plc_labels', gorev, kart: TANK })).toMatch(/seed_plc_labels/)
   // doğru betik ama varsayılan bağlantısı ILB'nin kapısı
   const kaynak = 'DB = os.environ.get("DB_URL", "postgresql://ilbadmin@localhost:5433/ilbplatform")'
-  expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py', gorev, kart: TANK, betikKaynak: kaynak })).toMatch(/varsayılan bağlantısı yasak uca gidiyor: 5433/)
+  expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py', gorev, kart: TANK, betikKaynak: kaynak })).toMatch(/bağlantısı yasak uca gidiyor: 5433/)
   // bağlantı açıkça verilmiş ve bu projenin ucu: serbest
   expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py --db postgresql://tankverify@127.0.0.1:15433/tankverify', gorev, kart: TANK, betikKaynak: kaynak })).toBeNull()
   // yasak uç komutta açıkça yazılmış
@@ -84,4 +84,31 @@ test('yalnız ÇALIŞTIRILAN betik denetlenir: test dosyası, git add, okuma ve 
   expect(komutDenetle({ komut: 'docker compose exec backend python -m scripts.migrate_b199_alarm_state_drop', gorev: g, kart: TANK2 })).toMatch(/veri betiği: migrate_b199_alarm_state_drop/)
   expect(komutDenetle({ komut: 'psql -f scripts/reset_db.sql', gorev: g, kart: TANK2 })).toMatch(/veri betiği: reset_db/)
   expect(betikler('git add scripts/seed_a.py && python scripts/seed_b.py; pytest tests/test_seed_c.py').map(b => b.ad)).toEqual(['seed_b'])
+})
+
+test('kör nokta: adres ortam değişkeninden, .env dosyasından ya da içe aktarılan modülden gelirse de yakalanır', () => {
+  const T = kartDogrula({ yasak: { uclar: ['5433'], dizinler: [], komutlar: [] } }, 'C:/p/tank')
+  const gorev = 'scripts/seed_tank_panolar.py betiğini kuru çalıştır'
+  // betik yalnız ortam değişkeni okuyor; adres .env'de
+  const betik = 'import os\nfrom app.core.config import settings\nDB = os.environ.get("DB_URL")\nhost = os.getenv("PGHOST")\n'
+  expect(envAdlari(betik)).toEqual(['DB_URL', 'PGHOST'])
+  expect(yerelImportlar(betik, 'scripts/seed_tank_panolar.py')).toContain('app/core/config.py')
+  expect(yerelImportlar(betik, 'scripts/seed_tank_panolar.py')).toContain('app/core/config/settings.py')
+  const env = envDosyasi('# yorum\nexport DB_URL="postgresql://ilbadmin@localhost:5433/ilbplatform"\nSECRET=x # not\n')
+  expect(env).toEqual({ DB_URL: 'postgresql://ilbadmin@localhost:5433/ilbplatform', SECRET: 'x' })
+  const kaynaklar = [{ etiket: 'scripts/seed_tank_panolar.py', metin: betik }, { etiket: '.env → DB_URL', metin: `DB_URL=${env.DB_URL}` }]
+  expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py', gorev, kart: T, betikKaynak: kaynaklar })).toMatch(/yasak uca gidiyor: 5433 \(kaynak: \.env → DB_URL\)/)
+  // adres içe aktarılan yapılandırma modülünde (pydantic Settings varsayılanı)
+  const config = 'class Settings(BaseSettings):\n    db_url: str = "postgresql://localhost:5433/ilb"\n'
+  expect(envAdlari(config)).toContain('DB_URL')
+  expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py', gorev, kart: T, betikKaynak: [{ etiket: 'içe aktarılan app/core/config.py', metin: config }] })).toMatch(/kaynak: içe aktarılan app\/core\/config\.py/)
+  // süreç ortamından
+  expect(komutDenetle({ komut: 'python scripts/seed_tank_panolar.py', gorev, kart: T, betikKaynak: [{ etiket: 'ortam değişkeni DATABASE_URL', metin: 'DATABASE_URL=postgres://h:5433/x' }] })).toMatch(/ortam değişkeni DATABASE_URL/)
+  // bağlantı komutta açıkça bu projenin ucuna verilirse serbest
+  expect(komutDenetle({ komut: 'DB_URL=postgresql://t@127.0.0.1:15433/t python scripts/seed_tank_panolar.py', gorev, kart: T, betikKaynak: kaynaklar })).toBeNull()
+  // diğer yazımlar
+  expect(envAdlari('const u = process.env.DATABASE_URL; x = $env:PGPORT; y="${API_URL:-http://a}"; z=os.environ["MQTT_HOST"]')).toEqual(expect.arrayContaining(['DATABASE_URL', 'PGPORT', 'API_URL', 'MQTT_HOST']))
+  expect(envDosyaYollari('docker compose --env-file deploy/.env.verify run x && source ./yerel.env')).toEqual(expect.arrayContaining(['deploy/.env.verify', './yerel.env', '.env']))
+  expect(yerelImportlar("const c = require('./config'); import x from '../lib/db.js'", 'tools/a.js')).toEqual(expect.arrayContaining(['tools/config.js', 'tools/../lib/db.js']))
+  expect(yerelImportlar('cfg = open("settings.ini")', 'a.py')).toContain('settings.ini')
 })
