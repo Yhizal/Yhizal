@@ -32,6 +32,12 @@ export const DANISMAN_ADAYLAR = ["fable", "claude-fable-5-2", "claude-fable-5-1"
 // Danışmanın eforu: güncel Fable'ın önerilen effort'u (profilden; siteden tazelenir). Profil her okunduğunda güncellenir.
 let danismanEfor = eforSec(MODEL_PROFILI_VARSAYILAN);
 export const danismanEforu = () => danismanEfor;
+// Fable kotası dolunca yönetimi en güncel Opus "max" effort'ta devralır; süre dolunca Fable yeniden denenir.
+export const YEDEK_DANISMAN = { model: "opus", effort: "max" };
+const YEDEK_SURE = 60 * 60_000;
+let yedekBitis = 0;
+export const yedekteMi = (simdi = Date.now()) => simdi < yedekBitis;
+export const yedegeGec = (simdi = Date.now()) => { yedekBitis = simdi + YEDEK_SURE; };
 const MAX_TUR = 3; // Fable'ın kendi kendine atama turu üst sınırı (kota koruması)
 const MAX_UYE = 5;
 // Skill ve Artifact yalnız tasarım üyeleri içindir (/design becerileri ve tasarım sayfası); salt-okur/hafif üyelere verilmez.
@@ -266,7 +272,7 @@ export function rolu(ekip, name) {
 }
 export function spec(name, ekip) {
   const { rol, gorev, ...r } = rolu(ekip, name);
-  return { name, ...r, ...(rol === "danisman" ? { effort: danismanEfor } : {}) };
+  return { name, ...r, ...(rol === "danisman" ? (yedekteMi() ? { ...YEDEK_DANISMAN } : { effort: danismanEfor }) : {}) };
 }
 
 // İlerleme: alt ajanın adım sayısından, bitene kadar %95'i geçmeyen yumuşak eğri.
@@ -688,24 +694,41 @@ function cark($) {
 }
 
 // Danışman çağrısı: en güncel Fable takma adı, olmazsa sabit sürüm, o da olmazsa Opus.
+// Fable kotası dolarsa iş durmaz: yönetim 1 saatliğine en güncel Opus'a (max effort) geçer.
 async function fable($, istek) {
   let son = { isAnswered: false, reason: "model yok" };
-  for (const model of DANISMAN_ADAYLAR) {
+  const opusMax = async () => {
+    try {
+      const r = await $.model.complete({ ...istek, ...YEDEK_DANISMAN });
+      if (r.isAnswered || r.reason === "aborted") return { ...r, model: "opus", yedek: true };
+      return kotaHatasi(r) ? { ...r, reason: "Fable ve Opus kotası doldu: sıfırlanmayı bekle", kota: true } : r;
+    } catch (err) {
+      const s = String(err);
+      return { isAnswered: false, reason: s.slice(0, 120), ...(/usage limit|rate.?limit|429/i.test(s) ? { kota: true } : {}) };
+    }
+  };
+  if (yedekteMi()) return opusMax();
+  const devral = async () => {
+    yedegeGec();
+    try { $.ui.toast("◆ Fable kotası doldu: yönetimi Opus (max effort) devraldı, iş sürüyor"); } catch {}
+    try { await $.agent.register(spec("danisman", await aktifEkip($))); } catch {}
+    return opusMax();
+  };
+  for (const model of DANISMAN_ADAYLAR.filter(m => m !== "opus")) {
     try {
       const r = await $.model.complete({ effort: danismanEfor, ...istek, model });
       if (r.isAnswered || r.reason === "aborted") return { ...r, model };
       son = r;
-      // 2.1.327+: kota dolunca hata hemen döner. Sıradaki modele (Opus) geçmek aynı kotayı bir kez daha yakar.
-      if (kotaHatasi(r)) return { ...r, reason: "kota doldu (rate limit): sıfırlanmayı bekle", kota: true };
+      if (kotaHatasi(r)) return devral();
     } catch (err) {
       son = { isAnswered: false, reason: String(err).slice(0, 120) };
-      if (/usage limit|rate.?limit|429/i.test(String(err))) return { ...son, kota: true };
+      if (/usage limit|rate.?limit|429/i.test(String(err))) return devral();
     }
   }
-  return son;
+  return opusMax();
 }
 export const kotaHatasi = r => r?.isAnswered === false && r.reason === "api-error" && (r.error === "rate_limit" || r.status === 429);
-const notu = r => (r.model && r.model !== DANISMAN_MODEL ? { not: `fable erişilemedi, ${r.model} kullanıldı` } : {});
+const notu = r => (r.yedek ? { not: "Fable kotası doldu, yönetim Opus (max effort)" } : r.model && r.model !== DANISMAN_MODEL ? { not: `fable erişilemedi, ${r.model} kullanıldı` } : {});
 
 async function sor($, soru) {
   const ekip = await aktifEkip($);

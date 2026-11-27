@@ -1318,3 +1318,15 @@ test('senaryo: ekip ajanının sınır dışı komutu çalışmadan reddedilir, 
   await new Promise(r => setTimeout(r, 50))
   expect(logs.join('\n')).toMatch(/⛔ Sınır dışı işlem engellendi — hizli-isci[\s\S]*seed_plc_labels/)
 })
+
+import { yedegeGec, yedekteMi, YEDEK_DANISMAN } from './ekip.mjs'
+test('Fable kotası dolunca danışman Opus max effort', () => {
+  expect(yedekteMi()).toBe(false)
+  expect(spec('danisman').model).toBe('fable')
+  yedegeGec()
+  expect(yedekteMi()).toBe(true)
+  expect(YEDEK_DANISMAN).toEqual({ model: 'opus', effort: 'max' })
+  expect(spec('danisman').model).toBe('opus')
+  expect(spec('danisman').effort).toBe('max')
+  expect(yedekteMi(Date.now() + 61 * 60_000)).toBe(false)
+})
